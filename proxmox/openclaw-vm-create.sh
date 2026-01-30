@@ -391,16 +391,19 @@ create_vm() {
     fi
     
     msg_info "Downloading Debian 13 cloud image..."
+    echo ""
     if [[ "$DRY_RUN" == "true" ]]; then
-        echo ""
         echo -e "  ${CYAN}[DRY RUN] Would download: $image_url${NC}"
     else
-        curl -fSL -o "debian-13.qcow2" "$image_url" 2>&1 | \
-            stdbuf -oL tr '\r' '\n' | grep --line-buffered -oP '[0-9]+(?=%)' | \
-            while read -r pct; do
-                printf "\r  ${YELLOW}⏳${NC}  Downloading Debian 13 cloud image... %3d%%" "$pct"
-            done
-        echo ""
+        echo -e "  ${CYAN}URL: $image_url${NC}"
+        if ! curl -#fSL -o "debian-13.qcow2" "$image_url"; then
+            msg_error "Failed to download Debian cloud image"
+            exit 1
+        fi
+        if [[ ! -f "debian-13.qcow2" ]] || [[ ! -s "debian-13.qcow2" ]]; then
+            msg_error "Downloaded file is missing or empty"
+            exit 1
+        fi
     fi
     msg_ok "Downloaded Debian 13 cloud image"
     
