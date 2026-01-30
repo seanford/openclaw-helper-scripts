@@ -753,67 +753,86 @@ update_systemd_user_services() {
         return
     fi
     
-    # First, rename legacy service files to openclaw-*
-    local legacy_service_names=("moltbot-gateway" "clawdbot-gateway" "moltbot" "clawdbot")
-    for legacy_svc in "${legacy_service_names[@]}"; do
-        local legacy_file="$user_systemd/${legacy_svc}.service"
-        local new_file="$user_systemd/openclaw-gateway.service"
-        
-        if [[ -f "$legacy_file" ]] && [[ ! -f "$new_file" ]]; then
-            if [[ "$DRY_RUN" == "true" ]]; then
-                echo -e "  ${YELLOW}[DRY-RUN]${NC} Would rename ${legacy_svc}.service → openclaw-gateway.service"
-            else
-                mv "$legacy_file" "$new_file"
-                print_success "Renamed ${legacy_svc}.service → openclaw-gateway.service"
-            fi
-        elif [[ -f "$legacy_file" ]] && [[ -f "$new_file" ]]; then
-            # Both exist - remove legacy
-            if [[ "$DRY_RUN" == "true" ]]; then
-                echo -e "  ${YELLOW}[DRY-RUN]${NC} Would remove duplicate ${legacy_svc}.service"
-            else
-                rm "$legacy_file"
-                print_info "Removed duplicate ${legacy_svc}.service (openclaw-gateway.service exists)"
-            fi
-        fi
-    done
-    
-    # Also check for legacy .path and .timer files
-    for ext in path timer; do
-        for legacy_svc in "${legacy_service_names[@]}"; do
-            local legacy_file="$user_systemd/${legacy_svc}.${ext}"
-            local new_file="$user_systemd/openclaw-gateway.${ext}"
+    # Find and rename any legacy-named service files to openclaw equivalents
+    # Pattern: anything starting with moltbot, clawdbot, or clawd
+    for ext in service path timer socket; do
+        for f in "$user_systemd"/*.${ext}; do
+            [[ -f "$f" ]] || continue
+            local basename=$(basename "$f")
+            local newname=""
             
-            if [[ -f "$legacy_file" ]] && [[ ! -f "$new_file" ]]; then
-                if [[ "$DRY_RUN" == "true" ]]; then
-                    echo -e "  ${YELLOW}[DRY-RUN]${NC} Would rename ${legacy_svc}.${ext} → openclaw-gateway.${ext}"
-                else
-                    mv "$legacy_file" "$new_file"
-                    print_success "Renamed ${legacy_svc}.${ext} → openclaw-gateway.${ext}"
+            # Check if this is a legacy-named file
+            for legacy in "${LEGACY_NAMES[@]}"; do
+                if [[ "$basename" == "${legacy}"* ]]; then
+                    # Replace the legacy prefix with "openclaw"
+                    newname="${basename/#${legacy}/openclaw}"
+                    break
                 fi
-            elif [[ -f "$legacy_file" ]]; then
+            done
+            
+            # Skip if not a legacy name or already named correctly
+            [[ -z "$newname" ]] && continue
+            [[ "$basename" == "$newname" ]] && continue
+            
+            local newpath="$user_systemd/$newname"
+            
+            if [[ ! -f "$newpath" ]]; then
+                # Rename legacy → openclaw
                 if [[ "$DRY_RUN" == "true" ]]; then
-                    echo -e "  ${YELLOW}[DRY-RUN]${NC} Would remove duplicate ${legacy_svc}.${ext}"
+                    echo -e "  ${YELLOW}[DRY-RUN]${NC} Would rename $basename → $newname"
                 else
-                    rm "$legacy_file"
-                    print_info "Removed duplicate ${legacy_svc}.${ext}"
+                    mv "$f" "$newpath"
+                    print_success "Renamed $basename → $newname"
+                fi
+            else
+                # openclaw version exists, remove legacy duplicate
+                if [[ "$DRY_RUN" == "true" ]]; then
+                    echo -e "  ${YELLOW}[DRY-RUN]${NC} Would remove duplicate $basename ($newname exists)"
+                else
+                    rm "$f"
+                    print_info "Removed duplicate $basename ($newname exists)"
                 fi
             fi
         done
     done
     
-    # Now update paths in all service files
-    for f in "$user_systemd"/*.service "$user_systemd"/*.path "$user_systemd"/*.timer; do
+    # Now update paths AND internal references in all service files
+    for f in "$user_systemd"/*.service "$user_systemd"/*.path "$user_systemd"/*.timer "$user_systemd"/*.socket; do
         if [[ -f "$f" ]]; then
-            if [[ "$DRY_RUN" == "true" ]]; then
-                echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update paths in $(basename "$f")"
-            else
-                sed -i "s|/home/$old_user|/home/$new_user|g" "$f"
-                
-                for legacy in "${LEGACY_NAMES[@]}"; do
-                    sed -i "s|/home/$legacy|/home/$new_user|g" "$f"
-                done
-                
-                print_success "Updated $(basename "$f")"
+            local needs_update=false
+            
+            # Check if file contains any legacy references
+            if grep -qE "/home/($old_user|moltbot|clawdbot|clawd)" "$f" 2>/dev/null; then
+                needs_update=true
+            fi
+            # Also check for legacy service/binary names inside the file
+            for legacy in "${LEGACY_NAMES[@]}"; do
+                if grep -q "$legacy" "$f" 2>/dev/null; then
+                    needs_update=true
+                    break
+                fi
+            done
+            
+            if $needs_update; then
+                if [[ "$DRY_RUN" == "true" ]]; then
+                    echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update $(basename "$f")"
+                else
+                    # Update home paths
+                    sed -i "s|/home/$old_user|/home/$new_user|g" "$f"
+                    for legacy in "${LEGACY_NAMES[@]}"; do
+                        sed -i "s|/home/$legacy|/home/$new_user|g" "$f"
+                    done
+                    
+                    # Update binary/command references (e.g., "moltbot gateway" → "openclaw gateway")
+                    for legacy in "${LEGACY_NAMES[@]}"; do
+                        sed -i "s|${legacy} gateway|openclaw gateway|g" "$f"
+                        sed -i "s|${legacy} chat|openclaw chat|g" "$f"
+                        sed -i "s|${legacy} status|openclaw status|g" "$f"
+                        sed -i "s|bin/${legacy}|bin/openclaw|g" "$f"
+                    done
+                    
+                    print_success "Updated $(basename "$f")"
+                fi
             fi
         fi
     done
@@ -836,16 +855,40 @@ update_shell_configs() {
     
     for f in "${shell_files[@]}"; do
         if [[ -f "$f" ]]; then
-            if [[ "$DRY_RUN" == "true" ]]; then
-                echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update $(basename "$f")"
-            else
-                sed -i "s|/home/$old_user|/home/$new_user|g" "$f"
-                
-                for legacy in "${LEGACY_NAMES[@]}"; do
-                    sed -i "s|/home/$legacy|/home/$new_user|g" "$f"
-                done
-                
-                print_success "Updated $(basename "$f")"
+            local needs_update=false
+            
+            # Check if file contains any legacy references
+            if grep -qE "/home/($old_user|moltbot|clawdbot|clawd)" "$f" 2>/dev/null; then
+                needs_update=true
+            fi
+            for legacy in "${LEGACY_NAMES[@]}"; do
+                # Check for legacy command usage (but not inside the aliases we add)
+                if grep -v "alias.*openclaw" "$f" | grep -qE "(^|[[:space:]])${legacy}([[:space:]]|$)" 2>/dev/null; then
+                    needs_update=true
+                    break
+                fi
+            done
+            
+            if $needs_update; then
+                if [[ "$DRY_RUN" == "true" ]]; then
+                    echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update $(basename "$f")"
+                else
+                    # Update home paths
+                    sed -i "s|/home/$old_user|/home/$new_user|g" "$f"
+                    for legacy in "${LEGACY_NAMES[@]}"; do
+                        sed -i "s|/home/$legacy|/home/$new_user|g" "$f"
+                    done
+                    
+                    # Update command references (careful not to break words containing legacy names)
+                    # Only replace standalone command usage, not parts of paths already handled
+                    for legacy in "${LEGACY_NAMES[@]}"; do
+                        # Replace "moltbot " at start of line or after whitespace
+                        sed -i "s|^\([[:space:]]*\)${legacy} |\1openclaw |g" "$f"
+                        sed -i "s| ${legacy} | openclaw |g" "$f"
+                    done
+                    
+                    print_success "Updated $(basename "$f")"
+                fi
             fi
         fi
     done
@@ -1040,13 +1083,22 @@ update_crontab() {
     local cron_content
     if cron_content=$(crontab -u "$new_user" -l 2>/dev/null); then
         if [[ "$DRY_RUN" == "true" ]]; then
-            echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update crontab paths"
+            echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update crontab paths and commands"
         else
             local new_content
             new_content=$(echo "$cron_content" | sed "s|/home/$old_user|/home/$new_user|g")
             
+            # Update legacy paths
             for legacy in "${LEGACY_NAMES[@]}"; do
                 new_content=$(echo "$new_content" | sed "s|/home/$legacy|/home/$new_user|g")
+            done
+            
+            # Update legacy command names
+            for legacy in "${LEGACY_NAMES[@]}"; do
+                new_content=$(echo "$new_content" | sed "s|${legacy} gateway|openclaw gateway|g")
+                new_content=$(echo "$new_content" | sed "s|${legacy} chat|openclaw chat|g")
+                new_content=$(echo "$new_content" | sed "s|${legacy} status|openclaw status|g")
+                new_content=$(echo "$new_content" | sed "s|bin/${legacy}|bin/openclaw|g")
             done
             
             echo "$new_content" | crontab -u "$new_user" -
