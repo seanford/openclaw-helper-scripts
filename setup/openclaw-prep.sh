@@ -254,7 +254,7 @@ confirm() {
     fi
     
     local response
-    read -p "$prompt" response < "$TTY_INPUT" 2>/dev/null || response="$default"
+    read -rp "$prompt" response < /dev/tty || response="$default"
     response="${response:-$default}"
     
     [[ "$response" =~ ^[Yy]$ ]]
@@ -285,7 +285,7 @@ prompt_choice() {
     done
     
     local choice
-    read -p "Enter choice [1-${#options[@]}]: " choice < "$TTY_INPUT" 2>/dev/null || choice=""
+    read -rp "Enter choice [1-${#options[@]}]: " choice < /dev/tty || choice=""
     
     if [[ -z "$choice" ]]; then
         echo "$default"
