@@ -834,7 +834,6 @@ migrate_workspace_to_standard() {
     fi
     
     if [[ -z "$current_workspace" ]]; then
-    if [[ -z "$current_workspace" ]]; then
         print_info "No existing workspace found"
         # Create standard workspace
         if [[ "$DRY_RUN" == "true" ]]; then
