@@ -624,54 +624,40 @@ start_vm() {
 }
 
 wait_for_vm_ready() {
-    if [[ "$START_VM" != "yes" ]] || [[ "$WAIT_FOR_SSH" != "yes" ]]; then
-        return
-    fi
-    
-    # Skip IP detection for nocloud images - they need manual network config
-    if [[ "$USE_CLOUD_INIT" != "yes" ]]; then
-        echo ""
-        msg_warn "Nocloud image - network must be configured manually from console"
-        echo -e "  ${CYAN}Access console: qm terminal $VMID${NC}"
+    if [[ "$START_VM" != "yes" ]]; then
         return
     fi
     
     echo ""
-    echo -ne "  ${YELLOW}⏳${NC}  Waiting for VM to get IP address..."
     
-    if [[ "$DRY_RUN" == "true" ]]; then
-        echo ""
-        echo -e "  ${CYAN}[DRY RUN] Would wait for VM IP via qm guest cmd${NC}"
-        return
-    fi
-    
+    # Quick attempt to get IP (10 seconds max) - guest agent usually not installed
     local ip=""
     local attempts=0
-    local max_attempts=60  # 5 minutes
     
-    while [[ -z "$ip" ]] && ((attempts < max_attempts)); do
+    echo -ne "  ${YELLOW}⏳${NC}  Checking for IP address (quick check)..."
+    while [[ -z "$ip" ]] && ((attempts < 2)); do
         sleep 5
         ((attempts++))
-        
-        # Try to get IP from QEMU guest agent
         ip=$(qm guest cmd "$VMID" network-get-interfaces 2>/dev/null | \
             jq -r '.[].["ip-addresses"][]? | select(.["ip-address-type"]=="ipv4") | .["ip-address"]' 2>/dev/null | \
             grep -v "^127\." | head -1 || true)
-        
-        echo -ne "\r  ${YELLOW}⏳${NC}  Waiting for VM to get IP address... (${attempts}/${max_attempts})   "
     done
     echo ""
     
-    if [[ -z "$ip" ]]; then
-        msg_warn "Could not determine VM IP address. You may need to configure networking manually."
-        return
+    if [[ -n "$ip" ]]; then
+        msg_ok "VM IP address: $ip"
+        VM_IP="$ip"
+    else
+        msg_warn "Could not detect IP (guest agent not responding)"
+        echo -e "  ${CYAN}Get IP from console: qm terminal $VMID${NC}"
+        echo -e "  ${CYAN}Then run: ip a${NC}"
     fi
-    
-    msg_ok "VM IP address: $ip"
-    
-    # Wait for SSH
-    msg_info "Waiting for SSH to become available..."
-    attempts=0
+}
+
+# Removed SSH wait - too slow and unreliable
+wait_for_ssh_legacy() {
+    local ip="$1"
+    local attempts=0
     max_attempts=24  # 2 minutes
     
     while ! nc -z "$ip" 22 2>/dev/null && ((attempts < max_attempts)); do
