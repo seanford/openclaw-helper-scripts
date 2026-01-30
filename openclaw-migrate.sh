@@ -249,7 +249,7 @@ confirm() {
         prompt="$prompt [y/N] "
     fi
     
-    read -p "$prompt" response
+    read -p "$prompt" response < /dev/tty
     response="${response:-$default}"
     
     [[ "$response" =~ ^[Yy]$ ]]
@@ -1205,10 +1205,10 @@ main() {
         fi
         print_info "Auto-detected username: $old_user"
     elif [[ -n "$DISCOVERED_USER" ]]; then
-        read -p "Current username [$DISCOVERED_USER]: " old_user
+        read -p "Current username [$DISCOVERED_USER]: " old_user < /dev/tty
         old_user="${old_user:-$DISCOVERED_USER}"
     else
-        read -p "Current username: " old_user
+        read -p "Current username: " old_user < /dev/tty
     fi
     
     if [[ -z "$old_user" ]]; then
@@ -1256,10 +1256,10 @@ main() {
             if [[ -n "$suggested_user" ]]; then
                 echo ""
                 print_info "Suggested username based on hostname: ${CYAN}$suggested_user${NC}"
-                read -p "New username [$suggested_user]: " new_user
+                read -p "New username [$suggested_user]: " new_user < /dev/tty
                 new_user="${new_user:-$suggested_user}"
             else
-                read -p "New username: " new_user
+                read -p "New username: " new_user < /dev/tty
             fi
         fi
         new_home="/home/$new_user"
