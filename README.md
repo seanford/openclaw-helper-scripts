@@ -9,6 +9,7 @@ A collection of utility scripts for [OpenClaw](https://github.com/openclaw/openc
 | `openclaw-prep.sh` | Prepare a Linux system for OpenClaw installation (run BEFORE install) |
 | `openclaw-vm-setup.sh` | Set up a fresh Debian Trixie VM with OpenClaw |
 | `openclaw-migrate.sh` | Migrate/rename users, update paths, standardize layouts |
+| `openclaw-post-migrate.sh` | Finalize migration: reinstall OpenClaw, set up gateway service |
 
 ---
 
@@ -236,6 +237,57 @@ openclaw status
 - Root access
 - Internet connection
 - ~2GB disk space (more with desktop)
+
+---
+
+## openclaw-post-migrate.sh
+
+Run after `openclaw-migrate.sh` completes to finalize the migration. This script:
+
+- Reinstalls OpenClaw (fixes hardcoded paths from the old user)
+- Sets up the gateway daemon service
+- Enables user lingering for background services
+- Verifies the installation works
+- Optionally removes the old user account
+
+### Quick Start
+
+Run as the **new user** (not root) after migration:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/main/openclaw-post-migrate.sh | bash
+```
+
+#### Dry-run preview
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/main/openclaw-post-migrate.sh | bash -s -- --dry-run
+```
+
+#### With old user removal
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/main/openclaw-post-migrate.sh | bash -s -- --remove-old-user moltbot
+```
+
+### Options
+
+```
+  --dry-run              Show what would be done without making changes
+  --skip-reinstall       Skip pnpm reinstall of openclaw
+  --skip-gateway         Skip gateway daemon reinstall
+  --skip-verify          Skip verification step
+  --configure            Run 'openclaw configure' for channel re-auth
+  --remove-old-user <name>  Remove the old user account after verification
+```
+
+### When to Run
+
+| Migration Type | When to Run Post-Migrate |
+|----------------|-------------------------|
+| User renamed | After reboot, logged in as new user |
+| Merged to existing user | Immediately, logged in as target user |
+| No user change | Immediately (optional, for verification) |
 
 ---
 
