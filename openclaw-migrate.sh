@@ -40,10 +40,19 @@ LEGACY_NAMES=("moltbot" "clawdbot" "clawd")
 LEGACY_DIRS=(".moltbot" ".clawdbot" ".clawd")
 
 # Colors for output
+# Standard conventions:
+#   RED     - Errors, failures
+#   GREEN   - Success, confirmation  
+#   YELLOW  - Warnings, caution
+#   BLUE    - Section headers, steps
+#   CYAN    - Highlights, important values
+#   MAGENTA - User prompts, questions needing input
+#   BOLD    - Emphasis
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 BOLD='\033[1m'
@@ -250,17 +259,35 @@ print_info() {
 confirm() {
     local prompt="$1"
     local default="${2:-n}"
+    local indicator
     
     if [[ "$default" == "y" ]]; then
-        prompt="$prompt [Y/n] "
+        indicator="${CYAN}[Y/n]${NC}"
     else
-        prompt="$prompt [y/N] "
+        indicator="${CYAN}[y/N]${NC}"
     fi
     
-    read -p "$prompt" response < /dev/tty
+    # Use echo -en for colors, then read
+    echo -en "${MAGENTA}▸ ${BOLD}${prompt}${NC} ${indicator} " >&2
+    read response < /dev/tty
     response="${response:-$default}"
     
     [[ "$response" =~ ^[Yy]$ ]]
+}
+
+# Prompt for text input with color
+prompt_input() {
+    local prompt="$1"
+    local default="${2:-}"
+    local result
+    
+    if [[ -n "$default" ]]; then
+        echo -en "${MAGENTA}▸ ${BOLD}${prompt}${NC} ${CYAN}[${default}]${NC}: " >&2
+    else
+        echo -en "${MAGENTA}▸ ${BOLD}${prompt}${NC}: " >&2
+    fi
+    read result < /dev/tty
+    echo "${result:-$default}"
 }
 
 # -----------------------------------------------------------------------------
@@ -1475,10 +1502,9 @@ main() {
         fi
         print_info "Auto-detected username: $old_user"
     elif [[ -n "$DISCOVERED_USER" ]]; then
-        read -p "Current username [$DISCOVERED_USER]: " old_user < /dev/tty
-        old_user="${old_user:-$DISCOVERED_USER}"
+        old_user=$(prompt_input "Current username" "$DISCOVERED_USER")
     else
-        read -p "Current username: " old_user < /dev/tty
+        old_user=$(prompt_input "Current username")
     fi
     
     if [[ -z "$old_user" ]]; then
@@ -1533,10 +1559,9 @@ main() {
             if [[ -n "$suggested_user" ]]; then
                 echo ""
                 print_info "Suggested username based on hostname: ${CYAN}$suggested_user${NC}"
-                read -p "New username [$suggested_user]: " new_user < /dev/tty
-                new_user="${new_user:-$suggested_user}"
+                new_user=$(prompt_input "New username" "$suggested_user")
             else
-                read -p "New username: " new_user < /dev/tty
+                new_user=$(prompt_input "New username")
             fi
         fi
         new_home="/home/$new_user"
@@ -1578,7 +1603,8 @@ main() {
             fi
             
             while true; do
-                read -p "Migrate to existing user '$new_user'? [y/n]: " choice < /dev/tty
+                echo -en "${MAGENTA}▸ ${BOLD}Migrate to existing user '$new_user'?${NC} ${CYAN}[y/n]${NC}: " >&2
+                read choice < /dev/tty
                 case "$choice" in
                     [Yy]*)
                         merge_to_existing="yes"
@@ -1589,7 +1615,7 @@ main() {
                         ;;
                     [Nn]*)
                         echo ""
-                        read -p "Enter a different username: " new_user < /dev/tty
+                        new_user=$(prompt_input "Enter a different username")
                         if [[ -z "$new_user" ]]; then
                             print_error "Username cannot be empty"
                             continue

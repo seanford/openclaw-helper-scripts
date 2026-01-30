@@ -20,11 +20,20 @@ set -euo pipefail
 VERSION="1.0.0"
 SCRIPT_NAME="openclaw-post-migrate"
 
-# Colors
+# Colors for output
+# Standard conventions:
+#   RED     - Errors, failures
+#   GREEN   - Success, confirmation  
+#   YELLOW  - Warnings, caution
+#   BLUE    - Section headers, steps
+#   CYAN    - Highlights, important values
+#   MAGENTA - User prompts, questions needing input
+#   BOLD    - Emphasis
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 BOLD='\033[1m'
@@ -269,7 +278,8 @@ check_correct_account() {
     if ((warnings > 0)); then
         print_warning "Account verification completed with warnings"
         echo ""
-        read -p "Continue anyway? [y/N]: " confirm
+        echo -en "${MAGENTA}▸ ${BOLD}Continue anyway?${NC} ${CYAN}[y/N]${NC}: "
+        read confirm
         if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
             echo "Aborted."
             exit 0
@@ -496,7 +506,8 @@ remove_old_user() {
     if [[ "$DRY_RUN" == "true" ]]; then
         echo -e "  ${YELLOW}[DRY-RUN]${NC} Would run: sudo userdel -r $OLD_USER"
     else
-        read -p "Are you sure you want to remove user '$OLD_USER'? [y/N]: " confirm
+        echo -en "${MAGENTA}▸ ${BOLD}Are you sure you want to remove user '$OLD_USER'?${NC} ${CYAN}[y/N]${NC}: "
+        read confirm
         if [[ "$confirm" =~ ^[Yy]$ ]]; then
             if sudo userdel -r "$OLD_USER" 2>/dev/null; then
                 print_success "User '$OLD_USER' removed"
