@@ -743,7 +743,6 @@ install_base_packages() {
         gnupg
         lsb-release
         apt-transport-https
-        software-properties-common
         
         # Process management
         procps
