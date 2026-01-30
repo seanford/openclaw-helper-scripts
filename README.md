@@ -2,6 +2,8 @@
 
 A collection of utility scripts for [OpenClaw](https://github.com/openclaw/openclaw) installations.
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/E1E41TAK1F)
+
 ## Quick Links
 
 | Category | Scripts | Description |
