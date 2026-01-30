@@ -32,6 +32,7 @@ OPT_RENAME_USER=""          # yes/no/prompt
 OPT_STANDARDIZE_WORKSPACE="" # yes/no/prompt
 OPT_CREATE_SYMLINKS=""       # yes/no/prompt
 OPT_MIGRATE_LEGACY_DIRS=""   # yes/no/prompt
+OPT_SETUP_SHELL=""           # yes/no/prompt
 OPT_NON_INTERACTIVE=false
 
 # Legacy project names to search for in configs
@@ -93,6 +94,9 @@ OPTIONS:
   
   --create-symlinks         Create backward compatibility symlinks
   --no-create-symlinks      Don't create symlinks
+  
+  --setup-shell             Add PATH and command aliases to shell config
+  --no-setup-shell          Don't modify shell PATH/aliases
   
   --help, -h                Show this help message
   --version                 Show version
@@ -195,6 +199,14 @@ parse_args() {
                 ;;
             --no-create-symlinks)
                 OPT_CREATE_SYMLINKS="no"
+                shift
+                ;;
+            --setup-shell)
+                OPT_SETUP_SHELL="yes"
+                shift
+                ;;
+            --no-setup-shell)
+                OPT_SETUP_SHELL="no"
                 shift
                 ;;
             --help|-h)
@@ -787,6 +799,60 @@ update_shell_configs() {
             fi
         fi
     done
+}
+
+setup_shell_environment() {
+    local new_home="$1"
+    local new_user="$2"
+    
+    print_step "Setting up shell environment (PATH and aliases)..."
+    
+    # Determine which shell config to modify
+    local shell_rc=""
+    if [[ -f "$new_home/.bashrc" ]]; then
+        shell_rc="$new_home/.bashrc"
+    elif [[ -f "$new_home/.zshrc" ]]; then
+        shell_rc="$new_home/.zshrc"
+    elif [[ -f "$new_home/.profile" ]]; then
+        shell_rc="$new_home/.profile"
+    fi
+    
+    if [[ -z "$shell_rc" ]]; then
+        print_warning "No shell config found, creating .bashrc"
+        shell_rc="$new_home/.bashrc"
+    fi
+    
+    local marker="# OpenClaw PATH and aliases (added by openclaw-migrate)"
+    
+    # Check if already configured
+    if grep -q "$marker" "$shell_rc" 2>/dev/null; then
+        print_info "Shell environment already configured in $(basename "$shell_rc")"
+        return
+    fi
+    
+    local shell_additions="
+$marker
+# Ensure ~/.local/bin is in PATH (common location for user-installed binaries)
+if [[ -d \"\$HOME/.local/bin\" ]] && [[ \":\$PATH:\" != *\":\$HOME/.local/bin:\"* ]]; then
+    export PATH=\"\$HOME/.local/bin:\$PATH\"
+fi
+
+# Aliases for legacy command names
+alias moltbot='openclaw'
+alias clawdbot='openclaw'
+# End OpenClaw additions
+"
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo -e "  ${YELLOW}[DRY-RUN]${NC} Would add to $(basename "$shell_rc"):"
+        echo -e "  ${YELLOW}[DRY-RUN]${NC}   - PATH addition for ~/.local/bin"
+        echo -e "  ${YELLOW}[DRY-RUN]${NC}   - alias moltbot='openclaw'"
+        echo -e "  ${YELLOW}[DRY-RUN]${NC}   - alias clawdbot='openclaw'"
+    else
+        echo "$shell_additions" >> "$shell_rc"
+        print_success "Added PATH and aliases to $(basename "$shell_rc")"
+        print_info "Aliases added: moltbot, clawdbot → openclaw"
+    fi
 }
 
 migrate_workspace_to_standard() {
@@ -1441,6 +1507,31 @@ main() {
     fi
     echo ""
     
+    # Determine shell environment setup
+    local setup_shell="yes"
+    if [[ -n "$OPT_SETUP_SHELL" ]]; then
+        setup_shell="$OPT_SETUP_SHELL"
+        print_info "Shell setup from command line: $setup_shell"
+    elif [[ "$OPT_NON_INTERACTIVE" == "true" ]]; then
+        setup_shell="yes"  # Default to yes in non-interactive
+    else
+        echo -e "${BOLD}Shell Environment:${NC}"
+        echo ""
+        echo "  Set up PATH and command aliases?"
+        echo "  This adds to your shell config (.bashrc/.zshrc):"
+        echo ""
+        echo "    • PATH includes ~/.local/bin (for user-installed binaries)"
+        echo "    • alias moltbot='openclaw'"
+        echo "    • alias clawdbot='openclaw'"
+        echo ""
+        
+        if ! confirm "Set up shell environment?" "y"; then
+            setup_shell="no"
+            print_info "Skipping shell setup"
+        fi
+    fi
+    echo ""
+    
     if ! confirm "Proceed with migration?" "n"; then
         echo "Aborted."
         exit 0
@@ -1513,6 +1604,13 @@ main() {
         print_step "Skipping symlink creation (not requested)"
     fi
     
+    # Set up shell environment (PATH and aliases)
+    if [[ "$setup_shell" == "yes" ]]; then
+        setup_shell_environment "$new_home" "$new_user"
+    else
+        print_step "Skipping shell setup (not requested)"
+    fi
+    
     echo ""
     echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
     echo -e "${GREEN}${BOLD}Migration complete!${NC}"
@@ -1539,6 +1637,12 @@ main() {
             echo "  /home/$old_user → $new_home"
         fi
         echo "  ~/.moltbot, ~/.clawdbot → ~/.openclaw"
+    fi
+    if [[ "$setup_shell" == "yes" ]]; then
+        echo ""
+        echo -e "${BOLD}Shell environment configured:${NC}"
+        echo "  PATH includes ~/.local/bin"
+        echo "  Aliases: moltbot, clawdbot → openclaw"
     fi
     echo ""
     echo -e "${BOLD}Next steps:${NC}"
