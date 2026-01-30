@@ -331,7 +331,12 @@ run_apt() {
         return 0
     fi
     
-    DEBIAN_FRONTEND=noninteractive apt-get "$action" -y "$@"
+    # -y flag is not valid for 'update', only for install/upgrade/remove/etc.
+    if [[ "$action" == "update" ]]; then
+        DEBIAN_FRONTEND=noninteractive apt-get "$action" "$@"
+    else
+        DEBIAN_FRONTEND=noninteractive apt-get "$action" -y "$@"
+    fi
 }
 
 # Execute command as the target user
@@ -397,11 +402,32 @@ check_internet() {
         return 0
     fi
     
-    if ! ping -c 1 -W 5 deb.debian.org &>/dev/null; then
-        if ! ping -c 1 -W 5 1.1.1.1 &>/dev/null; then
-            print_error "No internet connection detected"
-            exit 1
+    # Use curl/wget instead of ping - ping may not be installed on minimal Debian
+    # Try multiple methods in case some tools aren't available
+    local connected=false
+    
+    if command -v curl &>/dev/null; then
+        if curl -sI --connect-timeout 5 https://deb.debian.org &>/dev/null; then
+            connected=true
         fi
+    elif command -v wget &>/dev/null; then
+        if wget -q --spider --timeout=5 https://deb.debian.org &>/dev/null; then
+            connected=true
+        fi
+    elif command -v ping &>/dev/null; then
+        # Fallback to ping if available
+        if ping -c 1 -W 5 deb.debian.org &>/dev/null || ping -c 1 -W 5 1.1.1.1 &>/dev/null; then
+            connected=true
+        fi
+    else
+        # No tools available to check - assume connected and let apt fail if not
+        print_warning "Cannot verify internet (no curl/wget/ping) - assuming connected"
+        connected=true
+    fi
+    
+    if [[ "$connected" != "true" ]]; then
+        print_error "No internet connection detected"
+        exit 1
     fi
     
     print_success "Internet connection OK"

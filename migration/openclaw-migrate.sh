@@ -1106,8 +1106,11 @@ migrate_workspace_to_standard() {
             if [[ -d "$standard_workspace" ]] && [[ "$(ls -A "$standard_workspace" 2>/dev/null)" ]]; then
                 print_warning "Standard workspace already has content, merging..."
                 # Move contents, don't overwrite
-                cp -rn "$current_workspace"/* "$standard_workspace"/ 2>/dev/null || true
-                cp -rn "$current_workspace"/.* "$standard_workspace"/ 2>/dev/null || true
+                # Use shopt dotglob to include hidden files without .* matching . and ..
+                (
+                    shopt -s dotglob nullglob
+                    cp -rn "$current_workspace"/* "$standard_workspace"/ 2>/dev/null || true
+                )
                 # Remove old workspace
                 rm -rf "$current_workspace"
             else
