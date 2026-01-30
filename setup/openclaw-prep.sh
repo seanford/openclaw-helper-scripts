@@ -240,6 +240,13 @@ confirm() {
         return
     fi
     
+    # Check if we can actually read from TTY
+    if [[ ! -r "$TTY_INPUT" ]] && [[ "$TTY_INPUT" == "/dev/tty" ]]; then
+        # Can't read from TTY, use default
+        [[ "$default" == "y" ]]
+        return
+    fi
+    
     if [[ "$default" == "y" ]]; then
         prompt="$prompt [Y/n] "
     else
@@ -953,7 +960,7 @@ main() {
     echo ""
     
     if [[ "$NON_INTERACTIVE" != "true" ]]; then
-        if ! confirm "Continue?"; then
+        if ! confirm "Continue?" "y"; then
             echo "Aborted."
             exit 0
         fi
