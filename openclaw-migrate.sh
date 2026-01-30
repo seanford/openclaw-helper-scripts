@@ -139,6 +139,13 @@ run_modify() {
     fi
 }
 
+# Print success only when not in dry-run mode
+print_success_real() {
+    if [[ "$DRY_RUN" != "true" ]]; then
+        print_success "$@"
+    fi
+}
+
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -630,7 +637,7 @@ cleanup_system_services() {
             run_cmd systemctl disable "${svc}.service" 2>/dev/null || true
             run_modify "Remove legacy service file: $svc_file" \
                 rm "$svc_file"
-            print_success "Removed legacy $svc_file"
+            print_success_real "Removed legacy $svc_file"
         fi
     done
     
@@ -654,7 +661,7 @@ update_configs() {
         if [[ -d "$new_home/$legacy_dir" ]] && [[ ! -d "$openclaw_dir" ]]; then
             run_modify "Migrate config directory: $legacy_dir → .openclaw" \
                 mv "$new_home/$legacy_dir" "$openclaw_dir"
-            print_success "Migrated $legacy_dir → .openclaw"
+            print_success_real "Migrated $legacy_dir → .openclaw"
         fi
     done
     
@@ -695,11 +702,11 @@ update_configs() {
             if [[ -f "$legacy_config" ]] && [[ ! -f "$openclaw_dir/openclaw.json" ]]; then
                 run_modify "Rename config: $(basename "$legacy_config") → openclaw.json" \
                     mv "$legacy_config" "$openclaw_dir/openclaw.json"
-                print_success "Renamed $(basename "$legacy_config") → openclaw.json"
+                print_success_real "Renamed $(basename "$legacy_config") → openclaw.json"
             elif [[ -f "$legacy_config" ]]; then
                 run_modify "Remove duplicate config: $(basename "$legacy_config")" \
                     rm "$legacy_config"
-                print_info "Removed duplicate $(basename "$legacy_config")"
+                [[ "$DRY_RUN" != "true" ]] && print_info "Removed duplicate $(basename "$legacy_config")"
             fi
         done
         
@@ -732,13 +739,17 @@ update_systemd_user_services() {
     if [[ -d "$user_systemd" ]]; then
         for f in "$user_systemd"/*.service "$user_systemd"/*.path "$user_systemd"/*.timer; do
             if [[ -f "$f" ]]; then
-                sed -i "s|/home/$old_user|/home/$new_user|g" "$f"
-                
-                for legacy in "${LEGACY_NAMES[@]}"; do
-                    sed -i "s|/home/$legacy|/home/$new_user|g" "$f"
-                done
-                
-                print_success "Updated $(basename "$f")"
+                if [[ "$DRY_RUN" == "true" ]]; then
+                    echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update $(basename "$f")"
+                else
+                    sed -i "s|/home/$old_user|/home/$new_user|g" "$f"
+                    
+                    for legacy in "${LEGACY_NAMES[@]}"; do
+                        sed -i "s|/home/$legacy|/home/$new_user|g" "$f"
+                    done
+                    
+                    print_success "Updated $(basename "$f")"
+                fi
             fi
         done
     else
@@ -763,13 +774,17 @@ update_shell_configs() {
     
     for f in "${shell_files[@]}"; do
         if [[ -f "$f" ]]; then
-            sed -i "s|/home/$old_user|/home/$new_user|g" "$f"
-            
-            for legacy in "${LEGACY_NAMES[@]}"; do
-                sed -i "s|/home/$legacy|/home/$new_user|g" "$f"
-            done
-            
-            print_success "Updated $(basename "$f")"
+            if [[ "$DRY_RUN" == "true" ]]; then
+                echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update $(basename "$f")"
+            else
+                sed -i "s|/home/$old_user|/home/$new_user|g" "$f"
+                
+                for legacy in "${LEGACY_NAMES[@]}"; do
+                    sed -i "s|/home/$legacy|/home/$new_user|g" "$f"
+                done
+                
+                print_success "Updated $(basename "$f")"
+            fi
         fi
     done
 }
@@ -819,10 +834,15 @@ migrate_workspace_to_standard() {
     fi
     
     if [[ -z "$current_workspace" ]]; then
+    if [[ -z "$current_workspace" ]]; then
         print_info "No existing workspace found"
         # Create standard workspace
-        mkdir -p "$standard_workspace"
-        print_success "Created standard workspace: $standard_workspace"
+        if [[ "$DRY_RUN" == "true" ]]; then
+            echo -e "  ${YELLOW}[DRY-RUN]${NC} Would create standard workspace: $standard_workspace"
+        else
+            mkdir -p "$standard_workspace"
+            print_success "Created standard workspace: $standard_workspace"
+        fi
         return
     fi
     
@@ -830,50 +850,66 @@ migrate_workspace_to_standard() {
     
     # Move to standard location if requested and not already there
     if [[ "$standardize" == "yes" ]] && [[ "$current_workspace" != "$standard_workspace" ]]; then
-        if [[ -d "$standard_workspace" ]] && [[ "$(ls -A "$standard_workspace" 2>/dev/null)" ]]; then
-            print_warning "Standard workspace already has content, merging..."
-            # Move contents, don't overwrite
-            cp -rn "$current_workspace"/* "$standard_workspace"/ 2>/dev/null || true
-            cp -rn "$current_workspace"/.* "$standard_workspace"/ 2>/dev/null || true
-            # Remove old workspace
-            rm -rf "$current_workspace"
+        if [[ "$DRY_RUN" == "true" ]]; then
+            echo -e "  ${YELLOW}[DRY-RUN]${NC} Would move workspace to: $standard_workspace"
+            echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update config to use standard workspace path"
+            current_workspace="$standard_workspace"
         else
-            mkdir -p "$(dirname "$standard_workspace")"
-            mv "$current_workspace" "$standard_workspace"
+            if [[ -d "$standard_workspace" ]] && [[ "$(ls -A "$standard_workspace" 2>/dev/null)" ]]; then
+                print_warning "Standard workspace already has content, merging..."
+                # Move contents, don't overwrite
+                cp -rn "$current_workspace"/* "$standard_workspace"/ 2>/dev/null || true
+                cp -rn "$current_workspace"/.* "$standard_workspace"/ 2>/dev/null || true
+                # Remove old workspace
+                rm -rf "$current_workspace"
+            else
+                mkdir -p "$(dirname "$standard_workspace")"
+                mv "$current_workspace" "$standard_workspace"
+            fi
+            print_success "Moved workspace to: $standard_workspace"
+            
+            # Update config to use standard path
+            sed -i 's|"workspace"[[:space:]]*:[[:space:]]*"[^"]*"|"workspace": "~/.openclaw/workspace"|g' "$config"
+            print_success "Updated config to use standard workspace path"
+            
+            current_workspace="$standard_workspace"
         fi
-        print_success "Moved workspace to: $standard_workspace"
-        
-        # Update config to use standard path
-        sed -i 's|"workspace"[[:space:]]*:[[:space:]]*"[^"]*"|"workspace": "~/.openclaw/workspace"|g' "$config"
-        print_success "Updated config to use standard workspace path"
-        
-        current_workspace="$standard_workspace"
     elif [[ "$current_workspace" != "$standard_workspace" ]]; then
         # Just update the path in config to new home
-        sed -i "s|/home/$old_user|/home/$new_user|g" "$config"
-        for legacy in "${LEGACY_NAMES[@]}"; do
-            sed -i "s|/home/$legacy|/home/$new_user|g" "$config"
-        done
-        print_success "Updated workspace path in config"
+        if [[ "$DRY_RUN" == "true" ]]; then
+            echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update workspace path in config"
+        else
+            sed -i "s|/home/$old_user|/home/$new_user|g" "$config"
+            for legacy in "${LEGACY_NAMES[@]}"; do
+                sed -i "s|/home/$legacy|/home/$new_user|g" "$config"
+            done
+            print_success "Updated workspace path in config"
+        fi
     fi
     
     # Update markdown files in workspace
     if [[ -d "$current_workspace" ]]; then
         for f in "$current_workspace"/*.md "$current_workspace"/memory/*.md "$current_workspace"/scripts/*.md; do
             if [[ -f "$f" ]]; then
-                local changed=false
+                local needs_update=false
                 if grep -q "/home/$old_user" "$f" 2>/dev/null; then
-                    sed -i "s|/home/$old_user|/home/$new_user|g" "$f"
-                    changed=true
+                    needs_update=true
                 fi
                 for legacy in "${LEGACY_NAMES[@]}"; do
                     if grep -q "/home/$legacy" "$f" 2>/dev/null; then
-                        sed -i "s|/home/$legacy|/home/$new_user|g" "$f"
-                        changed=true
+                        needs_update=true
                     fi
                 done
-                if $changed; then
-                    print_success "Updated $(basename "$f")"
+                if $needs_update; then
+                    if [[ "$DRY_RUN" == "true" ]]; then
+                        echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update $(basename "$f")"
+                    else
+                        sed -i "s|/home/$old_user|/home/$new_user|g" "$f"
+                        for legacy in "${LEGACY_NAMES[@]}"; do
+                            sed -i "s|/home/$legacy|/home/$new_user|g" "$f"
+                        done
+                        print_success "Updated $(basename "$f")"
+                    fi
                 fi
             fi
         done
@@ -888,15 +924,19 @@ update_crontab() {
     
     local cron_content
     if cron_content=$(crontab -u "$new_user" -l 2>/dev/null); then
-        local new_content
-        new_content=$(echo "$cron_content" | sed "s|/home/$old_user|/home/$new_user|g")
-        
-        for legacy in "${LEGACY_NAMES[@]}"; do
-            new_content=$(echo "$new_content" | sed "s|/home/$legacy|/home/$new_user|g")
-        done
-        
-        echo "$new_content" | crontab -u "$new_user" -
-        print_success "Crontab updated"
+        if [[ "$DRY_RUN" == "true" ]]; then
+            echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update crontab paths"
+        else
+            local new_content
+            new_content=$(echo "$cron_content" | sed "s|/home/$old_user|/home/$new_user|g")
+            
+            for legacy in "${LEGACY_NAMES[@]}"; do
+                new_content=$(echo "$new_content" | sed "s|/home/$legacy|/home/$new_user|g")
+            done
+            
+            echo "$new_content" | crontab -u "$new_user" -
+            print_success "Crontab updated"
+        fi
     else
         print_info "No crontab found"
     fi
@@ -913,7 +953,6 @@ fix_ownership() {
         echo -e "  ${YELLOW}[DRY-RUN]${NC} Would chown -R $new_user:$new_user $new_home"
         echo -e "  ${YELLOW}[DRY-RUN]${NC} Would set secure permissions on config files"
         echo -e "  ${YELLOW}[DRY-RUN]${NC} Would verify sudoers permissions"
-        print_success "Ownership fixes planned"
         return
     fi
     
@@ -1152,14 +1191,15 @@ main() {
     # Check we're root
     check_root
     
-    echo -e "${BOLD}This tool will rename your Linux user and update all OpenClaw${NC}"
-    echo -e "${BOLD}configuration files to match the new username.${NC}"
+    echo -e "${BOLD}This tool helps migrate your OpenClaw installation.${NC}"
     echo ""
-    echo -e "${YELLOW}⚠  WARNING: This operation will:${NC}"
+    echo -e "${YELLOW}⚠  Depending on your choices, this may:${NC}"
     echo "   • Rename the Linux user account"
     echo "   • Move the home directory"
-    echo "   • Kill all processes for the old user"
+    echo "   • Kill all processes for the user"
     echo "   • Update OpenClaw configs and services"
+    echo ""
+    echo -e "You will be prompted for each option."
     echo ""
     
     if [[ "$OPT_NON_INTERACTIVE" != "true" ]]; then
