@@ -748,25 +748,75 @@ update_systemd_user_services() {
     
     local user_systemd="$new_home/.config/systemd/user"
     
-    if [[ -d "$user_systemd" ]]; then
-        for f in "$user_systemd"/*.service "$user_systemd"/*.path "$user_systemd"/*.timer; do
-            if [[ -f "$f" ]]; then
+    if [[ ! -d "$user_systemd" ]]; then
+        print_info "No systemd user services found"
+        return
+    fi
+    
+    # First, rename legacy service files to openclaw-*
+    local legacy_service_names=("moltbot-gateway" "clawdbot-gateway" "moltbot" "clawdbot")
+    for legacy_svc in "${legacy_service_names[@]}"; do
+        local legacy_file="$user_systemd/${legacy_svc}.service"
+        local new_file="$user_systemd/openclaw-gateway.service"
+        
+        if [[ -f "$legacy_file" ]] && [[ ! -f "$new_file" ]]; then
+            if [[ "$DRY_RUN" == "true" ]]; then
+                echo -e "  ${YELLOW}[DRY-RUN]${NC} Would rename ${legacy_svc}.service → openclaw-gateway.service"
+            else
+                mv "$legacy_file" "$new_file"
+                print_success "Renamed ${legacy_svc}.service → openclaw-gateway.service"
+            fi
+        elif [[ -f "$legacy_file" ]] && [[ -f "$new_file" ]]; then
+            # Both exist - remove legacy
+            if [[ "$DRY_RUN" == "true" ]]; then
+                echo -e "  ${YELLOW}[DRY-RUN]${NC} Would remove duplicate ${legacy_svc}.service"
+            else
+                rm "$legacy_file"
+                print_info "Removed duplicate ${legacy_svc}.service (openclaw-gateway.service exists)"
+            fi
+        fi
+    done
+    
+    # Also check for legacy .path and .timer files
+    for ext in path timer; do
+        for legacy_svc in "${legacy_service_names[@]}"; do
+            local legacy_file="$user_systemd/${legacy_svc}.${ext}"
+            local new_file="$user_systemd/openclaw-gateway.${ext}"
+            
+            if [[ -f "$legacy_file" ]] && [[ ! -f "$new_file" ]]; then
                 if [[ "$DRY_RUN" == "true" ]]; then
-                    echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update $(basename "$f")"
+                    echo -e "  ${YELLOW}[DRY-RUN]${NC} Would rename ${legacy_svc}.${ext} → openclaw-gateway.${ext}"
                 else
-                    sed -i "s|/home/$old_user|/home/$new_user|g" "$f"
-                    
-                    for legacy in "${LEGACY_NAMES[@]}"; do
-                        sed -i "s|/home/$legacy|/home/$new_user|g" "$f"
-                    done
-                    
-                    print_success "Updated $(basename "$f")"
+                    mv "$legacy_file" "$new_file"
+                    print_success "Renamed ${legacy_svc}.${ext} → openclaw-gateway.${ext}"
+                fi
+            elif [[ -f "$legacy_file" ]]; then
+                if [[ "$DRY_RUN" == "true" ]]; then
+                    echo -e "  ${YELLOW}[DRY-RUN]${NC} Would remove duplicate ${legacy_svc}.${ext}"
+                else
+                    rm "$legacy_file"
+                    print_info "Removed duplicate ${legacy_svc}.${ext}"
                 fi
             fi
         done
-    else
-        print_info "No systemd user services found"
-    fi
+    done
+    
+    # Now update paths in all service files
+    for f in "$user_systemd"/*.service "$user_systemd"/*.path "$user_systemd"/*.timer; do
+        if [[ -f "$f" ]]; then
+            if [[ "$DRY_RUN" == "true" ]]; then
+                echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update paths in $(basename "$f")"
+            else
+                sed -i "s|/home/$old_user|/home/$new_user|g" "$f"
+                
+                for legacy in "${LEGACY_NAMES[@]}"; do
+                    sed -i "s|/home/$legacy|/home/$new_user|g" "$f"
+                done
+                
+                print_success "Updated $(basename "$f")"
+            fi
+        fi
+    done
 }
 
 update_shell_configs() {

@@ -6,7 +6,133 @@ A collection of utility scripts for [OpenClaw](https://github.com/openclaw/openc
 
 | Script | Description |
 |--------|-------------|
+| `openclaw-vm-setup.sh` | Set up a fresh Debian Trixie VM with OpenClaw |
 | `openclaw-migrate.sh` | Migrate/rename users, update paths, standardize layouts |
+
+---
+
+## openclaw-vm-setup.sh
+
+Set up a fresh Debian Trixie (13) VM with OpenClaw and an optional XFCE4 desktop environment.
+
+### Quick Start
+
+#### One-liner (download and run)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/main/openclaw-vm-setup.sh | sudo bash
+```
+
+#### Dry-run first
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/main/openclaw-vm-setup.sh | sudo bash -s -- --dry-run
+```
+
+### Features
+
+- **Interactive or scripted** — prompts for choices or use CLI flags
+- **Dry-run mode** — preview all changes before executing
+- **User creation** — creates a non-root user for OpenClaw (defaults to hostname)
+- **Full prerequisites** — installs Node.js, pnpm, git, and CLI tools
+- **OpenClaw install** — installs OpenClaw globally via pnpm
+- **Onboarding** — runs `openclaw onboard` to configure API keys
+- **Systemd service** — sets up the gateway as a user service
+- **Desktop optional** — XFCE4 desktop for GUI access
+- **Idempotent** — can be re-run safely
+
+### Usage
+
+```
+Usage: openclaw-vm-setup.sh [OPTIONS]
+
+Set up a fresh Debian Trixie VM with OpenClaw and optional XFCE4 desktop.
+
+OPTIONS:
+  --dry-run                 Show what would be done without making changes
+  --non-interactive         Run without prompts (uses defaults)
+  
+  --user <name>             Username for OpenClaw (default: hostname)
+  
+  --desktop                 Install XFCE4 desktop environment
+  --no-desktop              Don't install desktop (headless server)
+  
+  --passwordless-sudo       Configure passwordless sudo for user
+  --no-passwordless-sudo    Require password for sudo (default)
+  
+  --help, -h                Show this help message
+  --version                 Show version
+```
+
+### Examples
+
+#### Interactive mode (recommended for first-time users)
+
+```bash
+sudo bash openclaw-vm-setup.sh
+```
+
+#### Preview changes (dry-run)
+
+```bash
+sudo bash openclaw-vm-setup.sh --dry-run
+```
+
+#### Headless server setup
+
+```bash
+sudo bash openclaw-vm-setup.sh --user myagent --no-desktop --non-interactive
+```
+
+#### Full desktop setup
+
+```bash
+sudo bash openclaw-vm-setup.sh --user myagent --desktop --passwordless-sudo
+```
+
+### What Gets Installed
+
+#### Base Packages
+- **Essential:** curl, wget, git, sudo, ca-certificates, gnupg
+- **CLI tools:** jq, ripgrep, tmux, htop, tree, unzip, vim, nano
+- **Build tools:** build-essential, python3
+- **Networking:** openssh-server, net-tools, dnsutils
+
+#### Node.js Stack
+- Node.js 22 (via NodeSource)
+- pnpm (global package manager)
+- OpenClaw (installed globally)
+
+#### Desktop (Optional)
+- XFCE4 desktop environment
+- LightDM display manager
+- Firefox ESR
+- Common fonts
+
+### Post-Setup
+
+After the script completes:
+
+```bash
+# 1. Reboot the system
+sudo reboot
+
+# 2. SSH as the new user
+ssh myagent@YOUR_IP
+
+# 3. Start the gateway
+openclaw gateway start
+
+# 4. Verify
+openclaw status
+```
+
+### Requirements
+
+- Fresh Debian Trixie (13) minimal install
+- Root access
+- Internet connection
+- ~2GB disk space (more with desktop)
 
 ---
 
