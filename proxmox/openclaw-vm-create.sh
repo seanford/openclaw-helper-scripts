@@ -98,7 +98,8 @@ msg_info() {
 }
 
 msg_ok() {
-    echo -e "\r${CM}${GREEN}$1${NC}"
+    # Clear line and print success (handles variable length messages)
+    echo -e "\r\033[K${CM}${GREEN}$1${NC}"
 }
 
 msg_error() {
@@ -627,7 +628,16 @@ wait_for_vm_ready() {
         return
     fi
     
-    msg_info "Waiting for VM to get IP address..."
+    # Skip IP detection for nocloud images - they need manual network config
+    if [[ "$USE_CLOUD_INIT" != "yes" ]]; then
+        echo ""
+        msg_warn "Nocloud image - network must be configured manually from console"
+        echo -e "  ${CYAN}Access console: qm terminal $VMID${NC}"
+        return
+    fi
+    
+    echo ""
+    echo -ne "  ${YELLOW}⏳${NC}  Waiting for VM to get IP address..."
     
     if [[ "$DRY_RUN" == "true" ]]; then
         echo ""
@@ -648,7 +658,7 @@ wait_for_vm_ready() {
             jq -r '.[].["ip-addresses"][]? | select(.["ip-address-type"]=="ipv4") | .["ip-address"]' 2>/dev/null | \
             grep -v "^127\." | head -1 || true)
         
-        printf "\r  ${YELLOW}⏳${NC}  Waiting for VM to get IP address... (%d/%d)" "$attempts" "$max_attempts"
+        echo -ne "\r  ${YELLOW}⏳${NC}  Waiting for VM to get IP address... (${attempts}/${max_attempts})   "
     done
     echo ""
     
