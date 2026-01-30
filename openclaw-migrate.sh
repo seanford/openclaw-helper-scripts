@@ -762,9 +762,10 @@ update_configs() {
                         sed -i "s|/home/$legacy|/home/$new_user|g" "$config"
                     done
                     
-                    # Replace legacy directory references
+                    # Replace legacy directory references (escape dots for regex)
                     for legacy_dir in "${LEGACY_DIRS[@]}"; do
-                        sed -i "s|$legacy_dir|.openclaw|g" "$config"
+                        local escaped_dir="${legacy_dir//./\\.}"
+                        sed -i "s|${escaped_dir}|.openclaw|g" "$config"
                     done
                     
                     print_success "Updated $(basename "$config")"
@@ -1088,13 +1089,17 @@ migrate_workspace_to_standard() {
             fi
             print_success "Moved workspace to: $standard_workspace"
             
-            # Update config to use standard path
-            sed -i 's|"workspace"[[:space:]]*:[[:space:]]*"[^"]*"|"workspace": "~/.openclaw/workspace"|g' "$config"
-            print_success "Updated config to use standard workspace path"
+            # Update config to use standard path (if config exists)
+            if [[ -f "$config" ]]; then
+                sed -i 's|"workspace"[[:space:]]*:[[:space:]]*"[^"]*"|"workspace": "~/.openclaw/workspace"|g' "$config"
+                print_success "Updated config to use standard workspace path"
+            else
+                print_warning "Config file not found, skipping workspace path update"
+            fi
             
             current_workspace="$standard_workspace"
         fi
-    elif [[ "$current_workspace" != "$standard_workspace" ]]; then
+    elif [[ "$current_workspace" != "$standard_workspace" ]] && [[ -f "$config" ]]; then
         # Just update the path in config to new home
         if [[ "$DRY_RUN" == "true" ]]; then
             echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update workspace path in config"
