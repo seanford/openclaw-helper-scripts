@@ -36,6 +36,7 @@ BRIDGE="vmbr0"
 VLAN=""
 MAC=""
 STORAGE=""
+ISO_STORAGE=""
 MACHINE_TYPE="i440fx"  # i440fx or q35
 CPU_TYPE="kvm64"       # kvm64 or host
 DISK_CACHE=""          # empty or writethrough
@@ -189,6 +190,65 @@ generate_mac() {
 # Storage Selection
 # -----------------------------------------------------------------------------
 
+select_iso_storage() {
+    # Skip if already set via CLI
+    if [[ -n "$ISO_STORAGE" ]]; then
+        msg_ok "Using ISO storage: $ISO_STORAGE (from CLI)"
+        return
+    fi
+    
+    # Select storage for downloading the cloud image (needs directory access)
+    local storage_list
+    storage_list=$(pvesm status -content iso,images | awk 'NR>1 {print $1}' | sort -u)
+    
+    if [[ -z "$storage_list" ]]; then
+        # Fallback: any storage with a path we can write to
+        storage_list=$(pvesm status | awk 'NR>1 && ($2=="dir" || $2=="nfs" || $2=="cifs" || $2=="btrfs") {print $1}')
+    fi
+    
+    if [[ -z "$storage_list" ]]; then
+        die "No storage available for downloading images. Need dir/nfs/cifs storage."
+    fi
+    
+    local count
+    count=$(echo "$storage_list" | wc -l)
+    
+    if [[ $count -eq 1 ]]; then
+        ISO_STORAGE=$(echo "$storage_list" | head -1)
+        msg_ok "Using ISO storage: $ISO_STORAGE"
+        return
+    fi
+    
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        ISO_STORAGE=$(echo "$storage_list" | head -1)
+        msg_ok "Using ISO storage: $ISO_STORAGE (auto-selected)"
+        return
+    fi
+    
+    echo ""
+    echo -e "${CYAN}Available storage for downloading image:${NC}"
+    local i=1
+    while read -r pool; do
+        local info
+        info=$(pvesm status -storage "$pool" | awk 'NR>1 {printf "Type: %-10s Free: %s", $2, $6}')
+        echo "  $i) $pool ($info)"
+        ((i++))
+    done <<< "$storage_list"
+    echo ""
+    
+    while true; do
+        read -rp "$(echo -e "${MAGENTA}Select ISO/download storage [1]: ${NC}")" choice </dev/tty
+        choice=${choice:-1}
+        
+        if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= count)); then
+            ISO_STORAGE=$(echo "$storage_list" | sed -n "${choice}p")
+            msg_ok "Using ISO storage: $ISO_STORAGE"
+            return
+        fi
+        echo -e "${RED}Invalid selection. Try again.${NC}"
+    done
+}
+
 select_storage() {
     local storage_list
     storage_list=$(pvesm status -content images | awk 'NR>1 {print $1}')
@@ -202,19 +262,19 @@ select_storage() {
     
     if [[ $count -eq 1 ]]; then
         STORAGE=$(echo "$storage_list" | head -1)
-        msg_ok "Using storage: $STORAGE"
+        msg_ok "Using VM storage: $STORAGE"
         return
     fi
     
     if [[ "$NON_INTERACTIVE" == "true" ]]; then
         # Use first available storage in non-interactive mode
         STORAGE=$(echo "$storage_list" | head -1)
-        msg_ok "Using storage: $STORAGE (auto-selected)"
+        msg_ok "Using VM storage: $STORAGE (auto-selected)"
         return
     fi
     
     echo ""
-    echo -e "${CYAN}Available storage pools:${NC}"
+    echo -e "${CYAN}Available storage pools for VM disk:${NC}"
     local i=1
     while read -r pool; do
         local info
@@ -225,12 +285,12 @@ select_storage() {
     echo ""
     
     while true; do
-        read -rp "$(echo -e "${MAGENTA}Select storage pool [1]: ${NC}")" choice </dev/tty
+        read -rp "$(echo -e "${MAGENTA}Select VM storage pool [1]: ${NC}")" choice </dev/tty
         choice=${choice:-1}
         
         if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= count)); then
             STORAGE=$(echo "$storage_list" | sed -n "${choice}p")
-            msg_ok "Using storage: $STORAGE"
+            msg_ok "Using VM storage: $STORAGE"
             return
         fi
         echo -e "${RED}Invalid selection. Try again.${NC}"
@@ -352,7 +412,8 @@ confirm_settings() {
     echo -e "  ${BOLD}CPU Cores:${NC}    $CORE_COUNT"
     echo -e "  ${BOLD}RAM:${NC}          ${RAM_SIZE} MiB"
     echo -e "  ${BOLD}Disk:${NC}         $DISK_SIZE"
-    echo -e "  ${BOLD}Storage:${NC}      $STORAGE"
+    echo -e "  ${BOLD}VM Storage:${NC}   $STORAGE"
+    echo -e "  ${BOLD}ISO Storage:${NC}  $ISO_STORAGE"
     echo -e "  ${BOLD}Machine:${NC}      $MACHINE_TYPE"
     echo -e "  ${BOLD}CPU Type:${NC}     $CPU_TYPE"
     echo -e "  ${BOLD}Bridge:${NC}       $BRIDGE"
@@ -379,8 +440,31 @@ confirm_settings() {
 # -----------------------------------------------------------------------------
 
 create_vm() {
-    TEMP_DIR=$(mktemp -d)
+    # Get the path for ISO storage
+    local iso_path
+    iso_path=$(pvesm path "${ISO_STORAGE}:iso/" 2>/dev/null | sed 's|/iso/$||' || true)
+    
+    if [[ -z "$iso_path" ]]; then
+        # Try to get the base path from storage config
+        iso_path=$(pvesm status -storage "$ISO_STORAGE" | awk 'NR>1 {print $7}' || true)
+    fi
+    
+    if [[ -z "$iso_path" ]] || [[ ! -d "$iso_path" ]]; then
+        # Fallback: get path from pvesm cfg
+        iso_path=$(grep -A10 "^${ISO_STORAGE}:" /etc/pve/storage.cfg | grep -E "^\s+path\s+" | awk '{print $2}' || true)
+    fi
+    
+    if [[ -z "$iso_path" ]] || [[ ! -d "$iso_path" ]]; then
+        msg_warn "Could not determine ISO storage path, using /var/lib/vz"
+        iso_path="/var/lib/vz"
+    fi
+    
+    # Create temp download location within the storage
+    TEMP_DIR="${iso_path}/tmp-openclaw-$$"
+    mkdir -p "$TEMP_DIR"
     cd "$TEMP_DIR"
+    
+    msg_ok "Download location: $TEMP_DIR"
     
     # Determine image URL
     local image_url
@@ -405,7 +489,7 @@ create_vm() {
             exit 1
         fi
     fi
-    msg_ok "Downloaded Debian 13 cloud image"
+    msg_ok "Downloaded Debian 13 cloud image ($(du -h debian-13.qcow2 | cut -f1))"
     
     # Determine storage type for disk naming
     local storage_type
@@ -646,8 +730,9 @@ Options:
     --hostname NAME     VM hostname (default: openclaw)
     --cores N           CPU cores (default: 4)
     --memory N          RAM in MiB (default: 4096)
-    --disk SIZE         Disk size (default: 32G)
-    --storage NAME      Storage pool (default: auto-detect)
+    --disk SIZE         Disk size (default: 64G)
+    --storage NAME      VM storage pool (default: auto-detect)
+    --iso-storage NAME  Storage for downloading image (default: auto-detect)
     --bridge NAME       Network bridge (default: vmbr0)
     --vlan TAG          VLAN tag (default: none)
     --machine TYPE      Machine type: i440fx or q35 (default: i440fx)
@@ -682,6 +767,7 @@ parse_args() {
             --memory) RAM_SIZE="$2"; shift 2 ;;
             --disk) DISK_SIZE="$2"; shift 2 ;;
             --storage) STORAGE="$2"; shift 2 ;;
+            --iso-storage) ISO_STORAGE="$2"; shift 2 ;;
             --bridge) BRIDGE="$2"; shift 2 ;;
             --vlan) VLAN="$2"; shift 2 ;;
             --machine) MACHINE_TYPE="$2"; shift 2 ;;
@@ -706,7 +792,9 @@ main() {
     check_arch
     check_proxmox
     
-    # Select storage if not specified
+    # Select storage locations
+    select_iso_storage
+    
     if [[ -z "$STORAGE" ]]; then
         select_storage
     fi
