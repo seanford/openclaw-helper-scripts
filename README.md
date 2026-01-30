@@ -8,8 +8,31 @@ A collection of utility scripts for [OpenClaw](https://github.com/openclaw/openc
 
 | Category | Scripts | Description |
 |----------|---------|-------------|
+| [**Proxmox**](proxmox/) | `openclaw-vm-create.sh` | Create VMs on Proxmox VE |
 | [**Setup**](setup/) | `openclaw-prep.sh`, `openclaw-vm-setup.sh` | Fresh installations |
 | [**Migration**](migration/) | `openclaw-migrate.sh`, `openclaw-post-migrate.sh` | Existing installations |
+
+---
+
+## Proxmox Scripts
+
+For **Proxmox VE hosts** — creating and managing OpenClaw VMs.
+
+### [openclaw-vm-create.sh](proxmox/openclaw-vm-create.sh)
+
+Create a Debian 13 VM on Proxmox VE with optional OpenClaw configuration.
+
+```bash
+# Run on Proxmox host as root
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/main/proxmox/openclaw-vm-create.sh)"
+
+# Non-interactive with custom options
+curl -fsSL ... | bash -s -- --non-interactive --hostname openclaw --cores 8 --memory 8192
+```
+
+Features: Downloads Debian 13 cloud image, configurable resources, cloud-init support, automatic IP detection.
+
+📖 [Full Proxmox documentation](proxmox/README.md)
 
 ---
 

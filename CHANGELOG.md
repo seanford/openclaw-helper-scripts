@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Proxmox Scripts
+- **openclaw-vm-create.sh** - Create Debian 13 VMs on Proxmox VE
+  - Downloads official Debian 13 cloud image
+  - Interactive and non-interactive modes
+  - Configurable: VM ID, hostname, CPU, RAM, disk, storage, network, VLAN
+  - Machine type selection (i440fx/q35)
+  - CPU type selection (kvm64/host)
+  - Cloud-init support for easy provisioning
+  - Automatic VM startup and IP detection
+  - Instructions for running OpenClaw setup inside VM
+
 ## [1.0.0] - 2026-01-30
 
 ### Added
