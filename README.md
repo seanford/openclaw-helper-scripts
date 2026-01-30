@@ -6,8 +6,111 @@ A collection of utility scripts for [OpenClaw](https://github.com/openclaw/openc
 
 | Script | Description |
 |--------|-------------|
+| `openclaw-prep.sh` | Prepare a Linux system for OpenClaw installation (run BEFORE install) |
 | `openclaw-vm-setup.sh` | Set up a fresh Debian Trixie VM with OpenClaw |
 | `openclaw-migrate.sh` | Migrate/rename users, update paths, standardize layouts |
+
+---
+
+## openclaw-prep.sh
+
+Prepare a Debian/Ubuntu system for OpenClaw installation. Run this **before** `pnpm add -g openclaw`.
+
+### Quick Start
+
+#### One-liner (download and run interactively)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/main/openclaw-prep.sh | bash
+```
+
+#### Non-interactive with defaults
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/main/openclaw-prep.sh | bash -s -- --non-interactive
+```
+
+#### Dry-run preview
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/main/openclaw-prep.sh | bash -s -- --dry-run
+```
+
+### What It Installs
+
+- **Node.js LTS** — via nvm (recommended) or NodeSource repository
+- **pnpm** — via corepack (recommended) or standalone installer
+- **git** — for version control
+- **Build tools** — build-essential, python3, gcc, make (for native modules)
+- **CLI tools** — jq, ripgrep, tmux, curl, wget, unzip
+- **Linuxbrew/Homebrew** — optional, prompt to install
+- **~/.local/bin** — added to PATH if not present
+
+### Features
+
+- **Idempotent** — safe to re-run; skips already-installed components
+- **Interactive or scripted** — prompts for choices or use CLI flags
+- **Dry-run mode** — preview all changes before executing
+- **curl|bash compatible** — reads prompts from /dev/tty
+- **Works as user or root** — uses sudo when needed
+
+### Usage
+
+```
+Usage: openclaw-prep.sh [OPTIONS]
+
+OPTIONS:
+  --dry-run                 Show what would be done without making changes
+  --non-interactive         Run without prompts (uses sensible defaults)
+  
+  Node.js installation method:
+  --node-nvm                Install Node.js via nvm (recommended)
+  --node-nodesource         Install Node.js via NodeSource repository
+  --node-skip               Skip Node.js installation
+  
+  pnpm installation method:
+  --pnpm-corepack           Install pnpm via corepack (recommended)
+  --pnpm-standalone         Install pnpm via standalone installer
+  --pnpm-skip               Skip pnpm installation
+  
+  Optional components:
+  --homebrew                Install Linuxbrew/Homebrew
+  --no-homebrew             Skip Homebrew installation
+  --build-tools             Install build tools
+  --no-build-tools          Skip build tools installation
+  
+  --help, -h                Show this help message
+  --version                 Show version
+```
+
+### Examples
+
+```bash
+# Interactive mode (recommended)
+./openclaw-prep.sh
+
+# Non-interactive with all defaults (nvm + corepack, no homebrew)
+./openclaw-prep.sh --non-interactive
+
+# Specific choices
+./openclaw-prep.sh --node-nvm --pnpm-corepack --no-homebrew --build-tools
+
+# NodeSource instead of nvm
+./openclaw-prep.sh --node-nodesource --pnpm-corepack
+```
+
+### After Running
+
+```bash
+# 1. Reload shell configuration
+source ~/.bashrc
+
+# 2. Install OpenClaw
+pnpm add -g openclaw
+
+# 3. Run onboarding
+openclaw onboard
+```
 
 ---
 
