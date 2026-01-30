@@ -161,12 +161,124 @@ check_not_root() {
     if [[ "$(id -u)" -eq 0 ]]; then
         print_error "This script should NOT be run as root."
         echo ""
-        echo "Run as the new user account, e.g.:"
-        echo "  su - $(whoami) -c 'bash $0'"
+        echo "You need to run this as the NEW user account after migration."
         echo ""
-        echo "Or SSH in as the new user first."
+        echo "Options:"
+        echo "  1. SSH in as the new user:"
+        echo "     ssh <newuser>@$(hostname)"
+        echo ""
+        echo "  2. Switch to the new user:"
+        echo "     su - <newuser>"
+        echo ""
+        echo "Then run this script again."
         exit 1
     fi
+}
+
+check_correct_account() {
+    print_step "Verifying you're logged into the correct account..."
+    
+    local current_user=$(whoami)
+    local errors=0
+    local warnings=0
+    
+    # Check 1: Home directory exists and is accessible
+    if [[ ! -d "$HOME" ]]; then
+        print_error "Home directory does not exist: $HOME"
+        ((errors++))
+    else
+        print_success "Home directory exists: $HOME"
+    fi
+    
+    # Check 2: Look for OpenClaw installation markers
+    local has_openclaw_dir=false
+    local has_config=false
+    local has_workspace=false
+    local has_systemd_service=false
+    
+    if [[ -d "$HOME/.openclaw" ]]; then
+        has_openclaw_dir=true
+        print_success "Found ~/.openclaw directory"
+        
+        # Check for config file
+        if [[ -f "$HOME/.openclaw/openclaw.json" ]]; then
+            has_config=true
+            print_success "Found openclaw.json config"
+        fi
+        
+        # Check for workspace
+        if [[ -d "$HOME/.openclaw/workspace" ]]; then
+            has_workspace=true
+            print_success "Found workspace directory"
+        fi
+    fi
+    
+    # Check for legacy directories that might indicate this is the OLD user
+    for legacy_dir in ".moltbot" ".clawdbot"; do
+        if [[ -d "$HOME/$legacy_dir" ]] && [[ ! -L "$HOME/$legacy_dir" ]]; then
+            # It's a real directory, not a symlink - might be old user
+            print_warning "Found legacy directory: ~/$legacy_dir (not a symlink)"
+            print_info "This might be the OLD user account. Make sure you're logged into the NEW user."
+            ((warnings++))
+        fi
+    done
+    
+    # Check for systemd user service
+    if [[ -f "$HOME/.config/systemd/user/openclaw-gateway.service" ]]; then
+        has_systemd_service=true
+        print_success "Found gateway service file"
+    fi
+    
+    # Evaluate results
+    if [[ "$has_openclaw_dir" == "false" ]]; then
+        echo ""
+        print_error "No OpenClaw installation found in this account!"
+        echo ""
+        echo "  Expected to find: ~/.openclaw/"
+        echo "  Current user: $current_user"
+        echo "  Home directory: $HOME"
+        echo ""
+        echo "  Are you logged into the correct account?"
+        echo "  The migration should have created ~/.openclaw/ in the NEW user's home."
+        echo ""
+        
+        # Check if maybe running from wrong account
+        for other_home in /home/*; do
+            [[ -d "$other_home" ]] || continue
+            [[ "$other_home" == "$HOME" ]] && continue
+            if [[ -d "$other_home/.openclaw" ]]; then
+                local other_user=$(basename "$other_home")
+                print_info "Found OpenClaw installation at: $other_home"
+                print_info "Try logging in as: $other_user"
+            fi
+        done
+        
+        ((errors++))
+    fi
+    
+    echo ""
+    
+    if ((errors > 0)); then
+        print_error "Account verification failed"
+        echo ""
+        echo "Make sure you're logged in as the NEW user that was created/targeted"
+        echo "during migration, not the old user or root."
+        return 1
+    fi
+    
+    if ((warnings > 0)); then
+        print_warning "Account verification completed with warnings"
+        echo ""
+        read -p "Continue anyway? [y/N]: " confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            echo "Aborted."
+            exit 0
+        fi
+    else
+        print_success "Account verification passed"
+    fi
+    
+    return 0
 }
 
 check_prerequisites() {
@@ -196,13 +308,6 @@ check_prerequisites() {
         print_success "systemctl available"
     else
         print_warning "systemctl not found (non-systemd system?)"
-    fi
-    
-    # Check home directory
-    if [[ -d "$HOME/.openclaw" ]]; then
-        print_success "OpenClaw config directory exists"
-    else
-        print_warning "No ~/.openclaw directory found"
     fi
     
     echo ""
@@ -414,6 +519,10 @@ main() {
     echo -e "${BOLD}Running as:${NC} $(whoami)"
     echo -e "${BOLD}Home:${NC} $HOME"
     echo ""
+    
+    if ! check_correct_account; then
+        exit 1
+    fi
     
     if ! check_prerequisites; then
         echo ""
