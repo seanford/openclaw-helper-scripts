@@ -1,13 +1,25 @@
-# OpenClaw Migrate
+# OpenClaw Helper Scripts
 
-A migration tool for [OpenClaw](https://github.com/openclaw/openclaw) installations. Rename users, update paths, standardize directory layouts, and migrate from legacy configurations.
+A collection of utility scripts for [OpenClaw](https://github.com/openclaw/openclaw) installations.
 
-## Quick Start
+## Scripts
+
+| Script | Description |
+|--------|-------------|
+| `openclaw-migrate.sh` | Migrate/rename users, update paths, standardize layouts |
+
+---
+
+## openclaw-migrate.sh
+
+Rename users, update paths, standardize directory layouts, and migrate from legacy configurations.
+
+### Quick Start
 
 ### One-liner (download and run)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-migrate/main/openclaw-migrate.sh | sudo bash -s -- --dry-run
+curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/main/openclaw-migrate.sh | sudo bash -s -- --dry-run
 ```
 
 Remove `--dry-run` to execute the migration.
@@ -15,7 +27,7 @@ Remove `--dry-run` to execute the migration.
 ### Download first, then run
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-migrate/main/openclaw-migrate.sh -o openclaw-migrate.sh
+curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/main/openclaw-migrate.sh -o openclaw-migrate.sh
 chmod +x openclaw-migrate.sh
 sudo ./openclaw-migrate.sh --dry-run
 ```
@@ -238,7 +250,7 @@ MIT License - see [LICENSE](LICENSE)
 
 ## Contributing
 
-Issues and PRs welcome at [github.com/seanford/openclaw-migrate](https://github.com/seanford/openclaw-migrate)
+Issues and PRs welcome at [github.com/seanford/openclaw-helper-scripts](https://github.com/seanford/openclaw-helper-scripts)
 
 ## Related
 
