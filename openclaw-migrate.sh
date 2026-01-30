@@ -680,22 +680,6 @@ merge_to_existing_user() {
     print_info "Old user '$old_user' preserved - remove manually with: sudo userdel -r $old_user"
 }
 
-remove_old_user() {
-    local old_user="$1"
-    
-    print_step "Removing old user account: $old_user"
-    
-    if [[ "$DRY_RUN" == "true" ]]; then
-        echo -e "  ${YELLOW}[DRY-RUN]${NC} Would run: userdel -r $old_user"
-    else
-        # Don't use -r to preserve home dir as backup
-        userdel "$old_user" 2>/dev/null || true
-        print_success "User account '$old_user' removed"
-        print_info "Old home directory preserved at /home/$old_user"
-        print_info "Remove manually when ready: sudo rm -rf /home/$old_user"
-    fi
-}
-
 update_sudoers() {
     local old_user="$1"
     local new_user="$2"
@@ -1059,7 +1043,6 @@ migrate_workspace_to_standard() {
             fi
         done
         # Also check legacy user-named directories
-        # Also check legacy user-named directories
         for legacy in "${LEGACY_NAMES[@]}"; do
             local legacy_ws="$new_home/$legacy"
             if [[ -d "$legacy_ws" ]] && [[ -f "$legacy_ws/AGENTS.md" || -f "$legacy_ws/SOUL.md" ]]; then
@@ -1159,8 +1142,15 @@ update_crontab() {
     
     print_step "Updating crontab..."
     
+    # Read from old user's crontab (may be same as new_user if not renaming)
+    local crontab_user="$old_user"
+    # If old user no longer exists (renamed), read from new user
+    if ! id "$old_user" &>/dev/null; then
+        crontab_user="$new_user"
+    fi
+    
     local cron_content
-    if cron_content=$(crontab -u "$new_user" -l 2>/dev/null); then
+    if cron_content=$(crontab -u "$crontab_user" -l 2>/dev/null); then
         if [[ "$DRY_RUN" == "true" ]]; then
             echo -e "  ${YELLOW}[DRY-RUN]${NC} Would update crontab paths and commands"
         else
