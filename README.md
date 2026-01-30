@@ -101,6 +101,10 @@ Scripts use consistent color coding:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
+## Credits
+
+Created by [Sean Ford](https://github.com/seanford) with [OpenClaw](https://github.com/openclaw/openclaw) + [Claude](https://www.anthropic.com/claude) (Anthropic's claude-opus-4-5 model).
+
 ## License
 
 [MIT](LICENSE)
