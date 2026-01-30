@@ -339,9 +339,21 @@ reinstall_openclaw() {
     print_step "Reinstalling OpenClaw (fixes hardcoded paths)..."
     
     if [[ "$DRY_RUN" == "true" ]]; then
+        echo -e "  ${YELLOW}[DRY-RUN]${NC} Would remove old pnpm global store"
+        echo -e "  ${YELLOW}[DRY-RUN]${NC} Would clear pnpm store-dir config"
         echo -e "  ${YELLOW}[DRY-RUN]${NC} Would run: pnpm add -g openclaw@latest"
     else
-        # Remove existing first to ensure clean install
+        # Clear old pnpm global store (may have hardcoded paths from old user)
+        # This fixes "Unexpected store location" errors after user migration
+        if [[ -d "$HOME/.local/share/pnpm/global" ]]; then
+            print_info "Clearing old pnpm global store..."
+            rm -rf "$HOME/.local/share/pnpm/global"
+        fi
+        
+        # Clear any global store-dir config that might point to old user
+        pnpm config delete store-dir --global 2>/dev/null || true
+        
+        # Remove existing openclaw to ensure clean install
         pnpm remove -g openclaw 2>/dev/null || true
         
         if pnpm add -g openclaw@latest; then

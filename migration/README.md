@@ -151,6 +151,20 @@ curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/ma
 ### "Cannot run while logged in as X"
 SSH as root directly, or use VM console. The migrate script cannot rename a user while processes are running as that user.
 
+### "Unexpected store location" (pnpm error)
+This happens when pnpm's global packages were installed under the old username. The post-migrate script handles this automatically, but if you see this error manually:
+
+```bash
+# Clear old global store
+rm -rf ~/.local/share/pnpm/global
+
+# Clear store config
+pnpm config delete store-dir --global
+
+# Reinstall openclaw
+pnpm add -g openclaw@latest
+```
+
 ### Services don't start after migration
 Run `openclaw gateway install --force` to regenerate service files.
 
