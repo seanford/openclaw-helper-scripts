@@ -103,7 +103,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Credits
 
-Created by [Sean Ford](https://github.com/seanford) with [OpenClaw](https://github.com/openclaw/openclaw) + [Claude](https://www.anthropic.com/claude) (Anthropic's claude-opus-4-5 model).
+Built by [Sean Ford](https://github.com/seanford) and his [OpenClaw](https://github.com/openclaw/openclaw)-powered AI assistant, K2-SO ([Claude claude-opus-4-5](https://www.anthropic.com/claude)).
 
 ## License
 
