@@ -600,20 +600,99 @@ rename_user() {
     # Rename login
     run_modify "Rename user login: $old_user → $new_user" \
         usermod -l "$new_user" "$old_user"
-    print_success "User login renamed"
+    print_success_real "User login renamed"
     
     # Rename primary group
     if getent group "$old_user" &>/dev/null; then
         run_modify "Rename group: $old_user → $new_user" \
             groupmod -n "$new_user" "$old_user"
-        print_success "Primary group renamed"
+        print_success_real "Primary group renamed"
     fi
     
     # Move home directory
     if [[ "$old_home" != "$new_home" ]]; then
         run_modify "Move home directory: $old_home → $new_home" \
             usermod -d "$new_home" -m "$new_user"
-        print_success "Home directory moved to $new_home"
+        print_success_real "Home directory moved to $new_home"
+    fi
+}
+
+merge_to_existing_user() {
+    local old_user="$1"
+    local new_user="$2"
+    local old_home="/home/$old_user"
+    local new_home="/home/$new_user"
+    
+    print_step "Merging configs to existing user: $old_user → $new_user"
+    
+    # Copy .openclaw directory
+    if [[ -d "$old_home/.openclaw" ]]; then
+        if [[ -d "$new_home/.openclaw" ]]; then
+            print_warning "Target user already has .openclaw - merging carefully"
+            if [[ "$DRY_RUN" == "true" ]]; then
+                echo -e "  ${YELLOW}[DRY-RUN]${NC} Would backup $new_home/.openclaw to $new_home/.openclaw.backup"
+                echo -e "  ${YELLOW}[DRY-RUN]${NC} Would copy $old_home/.openclaw/* to $new_home/.openclaw/"
+            else
+                # Backup existing
+                mv "$new_home/.openclaw" "$new_home/.openclaw.backup.$(date +%Y%m%d%H%M%S)"
+                print_info "Backed up existing .openclaw"
+                
+                # Copy from old
+                cp -a "$old_home/.openclaw" "$new_home/.openclaw"
+                print_success "Copied .openclaw directory"
+            fi
+        else
+            if [[ "$DRY_RUN" == "true" ]]; then
+                echo -e "  ${YELLOW}[DRY-RUN]${NC} Would copy $old_home/.openclaw to $new_home/.openclaw"
+            else
+                cp -a "$old_home/.openclaw" "$new_home/.openclaw"
+                print_success "Copied .openclaw directory"
+            fi
+        fi
+    fi
+    
+    # Copy systemd user services
+    local old_systemd="$old_home/.config/systemd/user"
+    local new_systemd="$new_home/.config/systemd/user"
+    if [[ -d "$old_systemd" ]]; then
+        if [[ "$DRY_RUN" == "true" ]]; then
+            echo -e "  ${YELLOW}[DRY-RUN]${NC} Would copy systemd user services"
+        else
+            mkdir -p "$new_systemd"
+            cp -a "$old_systemd"/* "$new_systemd"/ 2>/dev/null || true
+            print_success "Copied systemd user services"
+        fi
+    fi
+    
+    # Copy other relevant config dirs
+    for cfg_dir in ".config/openclaw" ".local/share/openclaw"; do
+        if [[ -d "$old_home/$cfg_dir" ]]; then
+            if [[ "$DRY_RUN" == "true" ]]; then
+                echo -e "  ${YELLOW}[DRY-RUN]${NC} Would copy $cfg_dir"
+            else
+                mkdir -p "$(dirname "$new_home/$cfg_dir")"
+                cp -a "$old_home/$cfg_dir" "$new_home/$cfg_dir"
+                print_success "Copied $cfg_dir"
+            fi
+        fi
+    done
+    
+    print_info "Old user '$old_user' preserved - remove manually with: sudo userdel -r $old_user"
+}
+
+remove_old_user() {
+    local old_user="$1"
+    
+    print_step "Removing old user account: $old_user"
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo -e "  ${YELLOW}[DRY-RUN]${NC} Would run: userdel -r $old_user"
+    else
+        # Don't use -r to preserve home dir as backup
+        userdel "$old_user" 2>/dev/null || true
+        print_success "User account '$old_user' removed"
+        print_info "Old home directory preserved at /home/$old_user"
+        print_info "Remove manually when ready: sudo rm -rf /home/$old_user"
     fi
 }
 
@@ -1472,14 +1551,12 @@ main() {
         new_home="/home/$old_user"
     fi
     
+    # Track if we're merging into an existing user vs renaming
+    local merge_to_existing="no"
+    
     if [[ "$rename_user" == "yes" ]]; then
         if [[ -z "$new_user" ]]; then
             print_error "New username cannot be empty"
-            exit 1
-        fi
-        
-        if [[ "$new_user" != "$old_user" ]] && ! check_user_not_exists "$new_user"; then
-            print_error "User '$new_user' already exists"
             exit 1
         fi
         
@@ -1487,6 +1564,58 @@ main() {
         if [[ ! "$new_user" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
             print_error "Invalid username format. Use lowercase letters, numbers, underscore, hyphen."
             exit 1
+        fi
+        
+        # Check if target user already exists
+        if [[ "$new_user" != "$old_user" ]] && ! check_user_not_exists "$new_user"; then
+            echo ""
+            print_warning "User '$new_user' already exists!"
+            echo ""
+            echo "  Options:"
+            echo "    1) Migrate TO the existing '$new_user' account"
+            echo "       (Copy configs and workspace, then remove '$old_user')"
+            echo "    2) Choose a different username"
+            echo ""
+            
+            if [[ "$OPT_NON_INTERACTIVE" == "true" ]]; then
+                print_error "Cannot merge to existing user in non-interactive mode. Use --new-user with a unique name."
+                exit 1
+            fi
+            
+            while true; do
+                read -p "Migrate to existing user '$new_user'? [y/n]: " choice < /dev/tty
+                case "$choice" in
+                    [Yy]*)
+                        merge_to_existing="yes"
+                        print_info "Will migrate configs to existing user '$new_user'"
+                        print_warning "User '$old_user' will be removed after migration!"
+                        new_home="/home/$new_user"
+                        break
+                        ;;
+                    [Nn]*)
+                        echo ""
+                        read -p "Enter a different username: " new_user < /dev/tty
+                        if [[ -z "$new_user" ]]; then
+                            print_error "Username cannot be empty"
+                            continue
+                        fi
+                        if [[ ! "$new_user" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+                            print_error "Invalid username format"
+                            continue
+                        fi
+                        if ! check_user_not_exists "$new_user"; then
+                            print_error "User '$new_user' also exists. Try again."
+                            continue
+                        fi
+                        new_home="/home/$new_user"
+                        print_info "Will rename user to '$new_user'"
+                        break
+                        ;;
+                    *)
+                        echo "Please answer y or n."
+                        ;;
+                esac
+            done
         fi
     fi
     
@@ -1684,7 +1813,11 @@ main() {
     # Execute migration steps
     stop_services "$old_user"
     
-    if [[ "$rename_user" == "yes" ]] && [[ "$old_user" != "$new_user" ]]; then
+    if [[ "$merge_to_existing" == "yes" ]]; then
+        # Merging to an existing user - copy configs, don't rename
+        merge_to_existing_user "$old_user" "$new_user"
+    elif [[ "$rename_user" == "yes" ]] && [[ "$old_user" != "$new_user" ]]; then
+        # Standard rename flow
         rename_user "$old_user" "$new_user"
         update_sudoers "$old_user" "$new_user"
     else
@@ -1719,7 +1852,13 @@ main() {
     echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
     echo ""
     echo -e "${BOLD}Migration summary:${NC}"
-    if [[ "$rename_user" == "yes" ]] && [[ "$old_user" != "$new_user" ]]; then
+    if [[ "$merge_to_existing" == "yes" ]]; then
+        echo "  Merged from:  $old_user → $new_user (existing user)"
+        echo "  Home:         $new_home"
+        echo ""
+        echo -e "  ${YELLOW}⚠ Old user '$old_user' preserved.${NC}"
+        echo "  Remove when ready: sudo userdel -r $old_user"
+    elif [[ "$rename_user" == "yes" ]] && [[ "$old_user" != "$new_user" ]]; then
         echo "  User renamed: $old_user → $new_user"
         echo "  Home:         $new_home"
     else
@@ -1749,7 +1888,23 @@ main() {
     echo ""
     echo -e "${BOLD}Next steps:${NC}"
     echo ""
-    if [[ "$rename_user" == "yes" ]] && [[ "$old_user" != "$new_user" ]]; then
+    if [[ "$merge_to_existing" == "yes" ]]; then
+        echo "  1. Log in as the target user:"
+        echo -e "     ${CYAN}ssh $new_user@$(hostname)${NC}"
+        echo ""
+        echo "  2. Reinstall pnpm global packages (fixes paths):"
+        echo -e "     ${CYAN}pnpm add -g openclaw@latest${NC}"
+        echo ""
+        echo "  3. Reinstall the gateway daemon:"
+        echo -e "     ${CYAN}openclaw gateway install --force${NC}"
+        echo ""
+        echo "  4. Start and verify:"
+        echo -e "     ${CYAN}systemctl --user enable --now openclaw-gateway.service${NC}"
+        echo -e "     ${CYAN}openclaw status${NC}"
+        echo ""
+        echo "  5. Once verified, remove old user:"
+        echo -e "     ${CYAN}sudo userdel -r $old_user${NC}"
+    elif [[ "$rename_user" == "yes" ]] && [[ "$old_user" != "$new_user" ]]; then
         echo "  1. Reboot the system:"
         echo -e "     ${CYAN}sudo reboot${NC}"
         echo ""
