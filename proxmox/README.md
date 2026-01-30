@@ -27,11 +27,11 @@ Creates a Debian 13 (Trixie) VM on Proxmox VE with optional OpenClaw configurati
 # Interactive mode (recommended for first use)
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/main/proxmox/openclaw-vm-create.sh)"
 
-# Non-interactive with defaults (4 cores, 4GB RAM, 64GB disk)
+# Non-interactive with defaults (4 cores, 4GB RAM, 128GB disk)
 curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/main/proxmox/openclaw-vm-create.sh | bash -s -- --non-interactive
 
 # Custom configuration
-curl -fsSL ... | bash -s -- --hostname myvm --cores 8 --memory 8192 --disk 64G
+curl -fsSL ... | bash -s -- --hostname myvm --cores 8 --memory 8192 --disk 128G
 ```
 
 ### Options
@@ -42,7 +42,7 @@ curl -fsSL ... | bash -s -- --hostname myvm --cores 8 --memory 8192 --disk 64G
 | `--hostname NAME` | VM hostname | `openclaw` |
 | `--cores N` | CPU cores | `4` |
 | `--memory N` | RAM in MiB | `4096` |
-| `--disk SIZE` | Disk size | `64G` |
+| `--disk SIZE` | Disk size | `128G` |
 | `--storage NAME` | Storage pool | auto-detect |
 | `--bridge NAME` | Network bridge | `vmbr0` |
 | `--vlan TAG` | VLAN tag | none |

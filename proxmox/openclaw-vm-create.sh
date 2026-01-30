@@ -29,7 +29,7 @@ SCRIPT_NAME="openclaw-vm-create"
 # -----------------------------------------------------------------------------
 VMID=""
 HOSTNAME="openclaw"
-DISK_SIZE="64G"
+DISK_SIZE="128G"
 CORE_COUNT="4"
 RAM_SIZE="4096"
 BRIDGE="vmbr0"
