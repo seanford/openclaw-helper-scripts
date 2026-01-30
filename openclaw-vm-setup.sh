@@ -2,7 +2,7 @@
 #
 # openclaw-vm-setup.sh
 #
-# Set up a fresh Debian Trixie VM with OpenClaw and optional XFCE4 desktop.
+# Set up a fresh Debian Trixie VM with OpenClaw and optional desktop environment.
 # Designed for minimal Debian installs to get a full OpenClaw environment running.
 #
 # Repository: https://github.com/openclaw/openclaw
@@ -20,7 +20,7 @@
 #
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="2.0.0"
 SCRIPT_NAME="openclaw-vm-setup"
 
 # Dry run mode (set via --dry-run flag)
@@ -28,9 +28,17 @@ DRY_RUN=false
 
 # Command-line configurable options (empty = prompt interactively)
 OPT_USERNAME=""
-OPT_INSTALL_DESKTOP=""       # yes/no
+OPT_DESKTOP_ENV=""           # xfce4/gnome/kde/lxqt/none
 OPT_PASSWORDLESS_SUDO=""     # yes/no
 OPT_NON_INTERACTIVE=false
+
+# Package group options (empty = prompt or use defaults)
+OPT_INSTALL_BROWSER=""
+OPT_INSTALL_PYTHON=""
+OPT_INSTALL_BUILD=""
+OPT_INSTALL_NODE_EXTRAS=""
+OPT_INSTALL_CLI=""
+OPT_INSTALL_MEDIA=""
 
 # Node.js version to install
 NODE_VERSION="22"
@@ -47,6 +55,17 @@ BOLD='\033[1m'
 
 # Track what was installed for summary
 INSTALLED_COMPONENTS=()
+
+# Selected desktop environment
+DESKTOP_ENV="none"
+
+# Package group selections
+INSTALL_BROWSER="no"
+INSTALL_PYTHON="no"
+INSTALL_BUILD="no"
+INSTALL_NODE_EXTRAS="no"
+INSTALL_CLI="no"
+INSTALL_MEDIA="no"
 
 # -----------------------------------------------------------------------------
 # Helper functions
@@ -71,7 +90,7 @@ print_usage() {
     cat << EOF
 Usage: $0 [OPTIONS]
 
-Set up a fresh Debian Trixie VM with OpenClaw and optional XFCE4 desktop.
+Set up a fresh Debian Trixie VM with OpenClaw and optional desktop environment.
 
 OPTIONS:
   --dry-run                 Show what would be done without making changes
@@ -79,8 +98,24 @@ OPTIONS:
   
   --user <name>             Username for OpenClaw (default: hostname)
   
-  --desktop                 Install XFCE4 desktop environment
-  --no-desktop              Don't install desktop (headless server)
+  Desktop Environment:
+  --desktop <env>           Install desktop: xfce4, gnome, kde, lxqt, none
+  --desktop                 Alias for --desktop xfce4 (legacy)
+  --no-desktop              Alias for --desktop none
+  
+  Package Groups (when desktop is selected):
+  --with-browser            Install Chromium browser
+  --no-browser              Skip browser installation
+  --with-python             Install Python dev tools + uv
+  --no-python               Skip Python tools
+  --with-build              Install build tools (gcc, make, etc.)
+  --no-build                Skip build tools
+  --with-node-extras        Install node-gyp prerequisites
+  --no-node-extras          Skip node extras
+  --with-cli                Install CLI productivity tools
+  --no-cli                  Skip CLI tools
+  --with-media              Install media tools (ffmpeg, imagemagick)
+  --no-media                Skip media tools (default)
   
   --passwordless-sudo       Configure passwordless sudo for user
   --no-passwordless-sudo    Require password for sudo (default)
@@ -95,11 +130,14 @@ EXAMPLES:
   # Dry-run preview
   sudo bash $0 --dry-run
   
-  # Full setup with desktop
-  sudo bash $0 --user myagent --desktop --passwordless-sudo
+  # Full setup with XFCE desktop and all package groups
+  sudo bash $0 --user myagent --desktop xfce4 --with-browser --with-python --passwordless-sudo
   
-  # Headless server setup
+  # Headless server setup (minimal, non-interactive)
   sudo bash $0 --user myagent --no-desktop --non-interactive
+  
+  # KDE Plasma desktop with media tools
+  sudo bash $0 --user myagent --desktop kde --with-media
 
 ONE-LINER INSTALL:
   curl -fsSL https://raw.githubusercontent.com/seanford/openclaw-helper-scripts/main/openclaw-vm-setup.sh | sudo bash
@@ -123,11 +161,65 @@ parse_args() {
                 shift 2
                 ;;
             --desktop)
-                OPT_INSTALL_DESKTOP="yes"
-                shift
+                if [[ "${2:-}" =~ ^(xfce4|gnome|kde|lxqt|none)$ ]]; then
+                    OPT_DESKTOP_ENV="$2"
+                    shift 2
+                else
+                    # Legacy --desktop without argument means xfce4
+                    OPT_DESKTOP_ENV="xfce4"
+                    shift
+                fi
                 ;;
             --no-desktop)
-                OPT_INSTALL_DESKTOP="no"
+                OPT_DESKTOP_ENV="none"
+                shift
+                ;;
+            --with-browser)
+                OPT_INSTALL_BROWSER="yes"
+                shift
+                ;;
+            --no-browser)
+                OPT_INSTALL_BROWSER="no"
+                shift
+                ;;
+            --with-python)
+                OPT_INSTALL_PYTHON="yes"
+                shift
+                ;;
+            --no-python)
+                OPT_INSTALL_PYTHON="no"
+                shift
+                ;;
+            --with-build)
+                OPT_INSTALL_BUILD="yes"
+                shift
+                ;;
+            --no-build)
+                OPT_INSTALL_BUILD="no"
+                shift
+                ;;
+            --with-node-extras)
+                OPT_INSTALL_NODE_EXTRAS="yes"
+                shift
+                ;;
+            --no-node-extras)
+                OPT_INSTALL_NODE_EXTRAS="no"
+                shift
+                ;;
+            --with-cli)
+                OPT_INSTALL_CLI="yes"
+                shift
+                ;;
+            --no-cli)
+                OPT_INSTALL_CLI="no"
+                shift
+                ;;
+            --with-media)
+                OPT_INSTALL_MEDIA="yes"
+                shift
+                ;;
+            --no-media)
+                OPT_INSTALL_MEDIA="no"
                 shift
                 ;;
             --passwordless-sudo)
@@ -342,6 +434,263 @@ validate_username() {
 }
 
 # -----------------------------------------------------------------------------
+# Desktop Environment Selection
+# -----------------------------------------------------------------------------
+
+select_desktop_environment() {
+    if [[ -n "$OPT_DESKTOP_ENV" ]]; then
+        DESKTOP_ENV="$OPT_DESKTOP_ENV"
+        print_info "Using desktop environment from command line: $DESKTOP_ENV"
+        return
+    fi
+    
+    if [[ "$OPT_NON_INTERACTIVE" == "true" ]]; then
+        DESKTOP_ENV="none"
+        print_info "Skipping desktop installation (non-interactive default)"
+        return
+    fi
+    
+    echo ""
+    echo -e "${BOLD}Desktop Environment Selection${NC}"
+    echo ""
+    echo "Choose a desktop environment to install:"
+    echo ""
+    echo -e "  ${CYAN}1)${NC} XFCE4      ${GREEN}(lightweight, recommended)${NC}"
+    echo -e "  ${CYAN}2)${NC} GNOME      (full-featured, modern)"
+    echo -e "  ${CYAN}3)${NC} KDE Plasma (feature-rich, customizable)"
+    echo -e "  ${CYAN}4)${NC} LXQt       ${GREEN}(very lightweight)${NC}"
+    echo -e "  ${CYAN}5)${NC} None       (headless/CLI only)"
+    echo ""
+    
+    local choice
+    read -p "Select [1-5, default: 5]: " choice < /dev/tty
+    choice="${choice:-5}"
+    
+    case "$choice" in
+        1) DESKTOP_ENV="xfce4" ;;
+        2) DESKTOP_ENV="gnome" ;;
+        3) DESKTOP_ENV="kde" ;;
+        4) DESKTOP_ENV="lxqt" ;;
+        5|"") DESKTOP_ENV="none" ;;
+        *)
+            print_warning "Invalid selection, defaulting to none"
+            DESKTOP_ENV="none"
+            ;;
+    esac
+    
+    echo ""
+    print_info "Selected: $DESKTOP_ENV"
+}
+
+show_headless_warning() {
+    echo ""
+    echo -e "${YELLOW}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${YELLOW}║${NC}  ${BOLD}Headless Mode Warning${NC}                                        ${YELLOW}║${NC}"
+    echo -e "${YELLOW}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${YELLOW}⚠${NC} Running without a desktop environment has limitations:"
+    echo ""
+    echo "    • No GUI browser for OAuth authentication"
+    echo "    • WhatsApp/Discord linking may require a separate machine"
+    echo "      with a browser to scan QR codes"
+    echo "    • Some OpenClaw features work better with a browser available"
+    echo ""
+    echo -e "  ${CYAN}ℹ${NC} You can install a desktop environment later by running:"
+    echo "      sudo apt install xfce4 xfce4-goodies lightdm"
+    echo ""
+    
+    if [[ "$OPT_NON_INTERACTIVE" != "true" ]]; then
+        if ! confirm "Continue with headless setup?"; then
+            echo ""
+            echo "Restarting desktop selection..."
+            select_desktop_environment
+            if [[ "$DESKTOP_ENV" == "none" ]]; then
+                show_headless_warning
+            fi
+        fi
+    fi
+}
+
+# -----------------------------------------------------------------------------
+# Package Group Selection
+# -----------------------------------------------------------------------------
+
+select_package_groups() {
+    # Only offer package groups if a desktop is being installed
+    if [[ "$DESKTOP_ENV" == "none" ]]; then
+        return
+    fi
+    
+    echo ""
+    echo -e "${BOLD}Additional Package Groups${NC}"
+    echo ""
+    echo "Select which package groups to install with your desktop:"
+    echo ""
+    
+    # Browser & Web Tools
+    select_browser_group
+    
+    # Python Development
+    select_python_group
+    
+    # Build Tools
+    select_build_group
+    
+    # Node.js Extras
+    select_node_extras_group
+    
+    # CLI Productivity
+    select_cli_group
+    
+    # Media Tools
+    select_media_group
+}
+
+select_browser_group() {
+    if [[ -n "$OPT_INSTALL_BROWSER" ]]; then
+        INSTALL_BROWSER="$OPT_INSTALL_BROWSER"
+        return
+    fi
+    
+    echo -e "${CYAN}Browser & Web Tools:${NC}"
+    echo "  • chromium (web browser)"
+    echo "  • firefox-esr (alternative browser)"
+    echo ""
+    
+    if [[ "$OPT_NON_INTERACTIVE" == "true" ]]; then
+        INSTALL_BROWSER="yes"
+        print_info "Installing browser tools (non-interactive default)"
+    else
+        if confirm "Install Browser & Web Tools?" "y"; then
+            INSTALL_BROWSER="yes"
+        else
+            INSTALL_BROWSER="no"
+        fi
+    fi
+    echo ""
+}
+
+select_python_group() {
+    if [[ -n "$OPT_INSTALL_PYTHON" ]]; then
+        INSTALL_PYTHON="$OPT_INSTALL_PYTHON"
+        return
+    fi
+    
+    echo -e "${CYAN}Python Development:${NC}"
+    echo "  • python3, python3-pip, python3-venv"
+    echo "  • uv (fast Python package manager)"
+    echo ""
+    
+    if [[ "$OPT_NON_INTERACTIVE" == "true" ]]; then
+        INSTALL_PYTHON="yes"
+        print_info "Installing Python tools (non-interactive default)"
+    else
+        if confirm "Install Python Development tools?" "y"; then
+            INSTALL_PYTHON="yes"
+        else
+            INSTALL_PYTHON="no"
+        fi
+    fi
+    echo ""
+}
+
+select_build_group() {
+    if [[ -n "$OPT_INSTALL_BUILD" ]]; then
+        INSTALL_BUILD="$OPT_INSTALL_BUILD"
+        return
+    fi
+    
+    echo -e "${CYAN}Build Tools:${NC}"
+    echo "  • build-essential, gcc, g++, make"
+    echo "  • pkg-config, autoconf, automake"
+    echo ""
+    
+    if [[ "$OPT_NON_INTERACTIVE" == "true" ]]; then
+        INSTALL_BUILD="yes"
+        print_info "Installing build tools (non-interactive default)"
+    else
+        if confirm "Install Build Tools?" "y"; then
+            INSTALL_BUILD="yes"
+        else
+            INSTALL_BUILD="no"
+        fi
+    fi
+    echo ""
+}
+
+select_node_extras_group() {
+    if [[ -n "$OPT_INSTALL_NODE_EXTRAS" ]]; then
+        INSTALL_NODE_EXTRAS="$OPT_INSTALL_NODE_EXTRAS"
+        return
+    fi
+    
+    echo -e "${CYAN}Node.js Extras:${NC}"
+    echo "  • node-gyp prerequisites (for native modules)"
+    echo "  • libnode-dev, libuv1-dev"
+    echo ""
+    
+    if [[ "$OPT_NON_INTERACTIVE" == "true" ]]; then
+        INSTALL_NODE_EXTRAS="yes"
+        print_info "Installing Node.js extras (non-interactive default)"
+    else
+        if confirm "Install Node.js Extras?" "y"; then
+            INSTALL_NODE_EXTRAS="yes"
+        else
+            INSTALL_NODE_EXTRAS="no"
+        fi
+    fi
+    echo ""
+}
+
+select_cli_group() {
+    if [[ -n "$OPT_INSTALL_CLI" ]]; then
+        INSTALL_CLI="$OPT_INSTALL_CLI"
+        return
+    fi
+    
+    echo -e "${CYAN}CLI Productivity:${NC}"
+    echo "  • jq, ripgrep, tmux, htop, ncdu"
+    echo "  • curl, wget, unzip, zip, git"
+    echo ""
+    
+    if [[ "$OPT_NON_INTERACTIVE" == "true" ]]; then
+        INSTALL_CLI="yes"
+        print_info "Installing CLI tools (non-interactive default)"
+    else
+        if confirm "Install CLI Productivity tools?" "y"; then
+            INSTALL_CLI="yes"
+        else
+            INSTALL_CLI="no"
+        fi
+    fi
+    echo ""
+}
+
+select_media_group() {
+    if [[ -n "$OPT_INSTALL_MEDIA" ]]; then
+        INSTALL_MEDIA="$OPT_INSTALL_MEDIA"
+        return
+    fi
+    
+    echo -e "${CYAN}Media Tools (optional):${NC}"
+    echo "  • ffmpeg (video/audio processing)"
+    echo "  • imagemagick (image processing)"
+    echo ""
+    
+    if [[ "$OPT_NON_INTERACTIVE" == "true" ]]; then
+        INSTALL_MEDIA="no"
+        print_info "Skipping media tools (non-interactive default)"
+    else
+        if confirm "Install Media Tools?" "n"; then
+            INSTALL_MEDIA="yes"
+        else
+            INSTALL_MEDIA="no"
+        fi
+    fi
+    echo ""
+}
+
+# -----------------------------------------------------------------------------
 # Installation functions
 # -----------------------------------------------------------------------------
 
@@ -370,36 +719,24 @@ install_base_packages() {
         apt-transport-https
         software-properties-common
         
-        # CLI tools
-        jq
-        ripgrep
-        tmux
-        htop
-        tree
-        unzip
-        zip
-        less
-        vim
-        nano
-        
-        # Build essentials (for native node modules)
-        build-essential
-        python3
+        # Process management
+        procps
+        psmisc
         
         # Networking
         openssh-server
         net-tools
         dnsutils
         
-        # Process management
-        procps
-        psmisc
-        
         # Misc utilities
         locales
         tzdata
         file
         rsync
+        less
+        vim
+        nano
+        tree
     )
     
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -409,43 +746,257 @@ install_base_packages() {
     fi
     
     print_success "Base packages installed"
-    INSTALLED_COMPONENTS+=("Base CLI tools (jq, ripgrep, tmux, htop, etc.)")
+    INSTALLED_COMPONENTS+=("Base system packages")
+}
+
+install_browser_packages() {
+    if [[ "$INSTALL_BROWSER" != "yes" ]]; then
+        return
+    fi
+    
+    print_step "Installing Browser & Web Tools..."
+    
+    local packages=(
+        firefox-esr
+    )
+    
+    # Try chromium first, fall back to chromium-browser
+    if [[ "$DRY_RUN" == "true" ]]; then
+        print_dry_run "Would install: chromium (or chromium-browser) firefox-esr"
+    else
+        if apt-cache show chromium &>/dev/null; then
+            packages+=(chromium)
+        elif apt-cache show chromium-browser &>/dev/null; then
+            packages+=(chromium-browser)
+        else
+            print_warning "Chromium not available in repositories, installing Firefox only"
+        fi
+        
+        run_apt install "${packages[@]}"
+    fi
+    
+    print_success "Browser packages installed"
+    INSTALLED_COMPONENTS+=("Browsers (Chromium, Firefox ESR)")
+}
+
+install_python_packages() {
+    if [[ "$INSTALL_PYTHON" != "yes" ]]; then
+        return
+    fi
+    
+    print_step "Installing Python Development tools..."
+    
+    local packages=(
+        python3
+        python3-pip
+        python3-venv
+        python3-dev
+    )
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        print_dry_run "Would install: ${packages[*]}"
+        print_dry_run "Would install uv via installer script"
+    else
+        run_apt install "${packages[@]}"
+        
+        # Install uv
+        print_substep "Installing uv package manager..."
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+    fi
+    
+    print_success "Python tools installed"
+    INSTALLED_COMPONENTS+=("Python development (python3, pip, venv, uv)")
+}
+
+install_build_packages() {
+    if [[ "$INSTALL_BUILD" != "yes" ]]; then
+        return
+    fi
+    
+    print_step "Installing Build Tools..."
+    
+    local packages=(
+        build-essential
+        gcc
+        g++
+        make
+        pkg-config
+        autoconf
+        automake
+        libtool
+    )
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        print_dry_run "Would install: ${packages[*]}"
+    else
+        run_apt install "${packages[@]}"
+    fi
+    
+    print_success "Build tools installed"
+    INSTALLED_COMPONENTS+=("Build tools (gcc, g++, make, etc.)")
+}
+
+install_node_extras_packages() {
+    if [[ "$INSTALL_NODE_EXTRAS" != "yes" ]]; then
+        return
+    fi
+    
+    print_step "Installing Node.js Extras..."
+    
+    local packages=(
+        # node-gyp prerequisites
+        python3
+        make
+        g++
+    )
+    
+    # Add libuv-dev if available
+    if apt-cache show libuv1-dev &>/dev/null; then
+        packages+=(libuv1-dev)
+    fi
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        print_dry_run "Would install: ${packages[*]}"
+    else
+        run_apt install "${packages[@]}"
+    fi
+    
+    print_success "Node.js extras installed"
+    INSTALLED_COMPONENTS+=("Node.js extras (node-gyp prerequisites)")
+}
+
+install_cli_packages() {
+    if [[ "$INSTALL_CLI" != "yes" ]]; then
+        return
+    fi
+    
+    print_step "Installing CLI Productivity tools..."
+    
+    local packages=(
+        jq
+        ripgrep
+        tmux
+        htop
+        ncdu
+        curl
+        wget
+        unzip
+        zip
+        git
+    )
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        print_dry_run "Would install: ${packages[*]}"
+    else
+        run_apt install "${packages[@]}"
+    fi
+    
+    print_success "CLI tools installed"
+    INSTALLED_COMPONENTS+=("CLI productivity (jq, ripgrep, tmux, htop, ncdu)")
+}
+
+install_media_packages() {
+    if [[ "$INSTALL_MEDIA" != "yes" ]]; then
+        return
+    fi
+    
+    print_step "Installing Media Tools..."
+    
+    local packages=(
+        ffmpeg
+        imagemagick
+    )
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        print_dry_run "Would install: ${packages[*]}"
+    else
+        run_apt install "${packages[@]}"
+    fi
+    
+    print_success "Media tools installed"
+    INSTALLED_COMPONENTS+=("Media tools (ffmpeg, imagemagick)")
 }
 
 install_desktop() {
-    print_step "Installing XFCE4 desktop environment..."
+    if [[ "$DESKTOP_ENV" == "none" ]]; then
+        return
+    fi
     
-    local packages=(
-        xfce4
-        xfce4-goodies
-        xfce4-terminal
-        lightdm
-        lightdm-gtk-greeter
-        
-        # Browsers
-        firefox-esr
+    print_step "Installing ${DESKTOP_ENV^^} desktop environment..."
+    
+    local packages=()
+    local display_manager="lightdm"
+    local dm_greeter="lightdm-gtk-greeter"
+    
+    case "$DESKTOP_ENV" in
+        xfce4)
+            packages=(
+                xfce4
+                xfce4-goodies
+                xfce4-terminal
+            )
+            ;;
+        gnome)
+            packages=(
+                gnome-core
+                gnome-shell
+                gnome-terminal
+                nautilus
+            )
+            display_manager="gdm3"
+            dm_greeter=""
+            ;;
+        kde)
+            packages=(
+                kde-plasma-desktop
+                plasma-nm
+                konsole
+                dolphin
+            )
+            display_manager="sddm"
+            dm_greeter=""
+            ;;
+        lxqt)
+            packages=(
+                lxqt
+                lxqt-themes
+                qterminal
+            )
+            ;;
+    esac
+    
+    # Common desktop packages
+    packages+=(
+        # Display manager
+        "$display_manager"
         
         # Fonts
         fonts-dejavu
         fonts-liberation
         fonts-noto
         
-        # Useful desktop apps
+        # Desktop utilities
         xdg-utils
         dbus-x11
     )
     
+    # Add greeter if needed
+    if [[ -n "$dm_greeter" ]]; then
+        packages+=("$dm_greeter")
+    fi
+    
     if [[ "$DRY_RUN" == "true" ]]; then
-        print_dry_run "Would install XFCE4 desktop packages"
+        print_dry_run "Would install ${DESKTOP_ENV^^} desktop packages"
+        print_dry_run "Packages: ${packages[*]}"
     else
         run_apt install "${packages[@]}"
         
         # Enable display manager
-        systemctl enable lightdm 2>/dev/null || true
+        systemctl enable "$display_manager" 2>/dev/null || true
     fi
     
-    print_success "XFCE4 desktop installed"
-    INSTALLED_COMPONENTS+=("XFCE4 desktop environment")
+    print_success "${DESKTOP_ENV^^} desktop installed"
+    INSTALLED_COMPONENTS+=("${DESKTOP_ENV^^} desktop environment")
 }
 
 create_user() {
@@ -761,7 +1312,7 @@ print_summary() {
     echo "     openclaw status"
     echo ""
     
-    if [[ "$INSTALL_DESKTOP" == "yes" ]]; then
+    if [[ "$DESKTOP_ENV" != "none" ]]; then
         echo "  5. ${CYAN}For desktop access:${NC}"
         echo "     - Log in via the graphical login screen"
         echo "     - Or use VNC/RDP for remote desktop access"
@@ -790,11 +1341,11 @@ main() {
     echo ""
     echo "It will:"
     echo "  • Update the system"
-    echo "  • Install essential packages and CLI tools"
+    echo "  • Install essential packages"
     echo "  • Create a non-root user for OpenClaw"
     echo "  • Install Node.js, pnpm, and OpenClaw"
     echo "  • Configure systemd user service for the gateway"
-    echo "  • Optionally install XFCE4 desktop"
+    echo "  • Optionally install a desktop environment and additional tools"
     echo ""
     
     if [[ "$OPT_NON_INTERACTIVE" != "true" ]]; then
@@ -840,25 +1391,16 @@ main() {
         exit 1
     fi
     
-    # Determine desktop installation
-    if [[ -n "$OPT_INSTALL_DESKTOP" ]]; then
-        INSTALL_DESKTOP="$OPT_INSTALL_DESKTOP"
-    elif [[ "$OPT_NON_INTERACTIVE" == "true" ]]; then
-        INSTALL_DESKTOP="no"
-        print_info "Skipping desktop installation (non-interactive default)"
-    else
-        echo ""
-        echo -e "${BOLD}Desktop Environment${NC}"
-        echo ""
-        echo "XFCE4 is a lightweight desktop environment."
-        echo "Skip this for headless servers."
-        echo ""
-        if confirm "Install XFCE4 desktop environment?" "n"; then
-            INSTALL_DESKTOP="yes"
-        else
-            INSTALL_DESKTOP="no"
-        fi
+    # Desktop environment selection
+    select_desktop_environment
+    
+    # Show warning if headless
+    if [[ "$DESKTOP_ENV" == "none" ]]; then
+        show_headless_warning
     fi
+    
+    # Package group selection (only if desktop is selected)
+    select_package_groups
     
     # Determine passwordless sudo
     if [[ -n "$OPT_PASSWORDLESS_SUDO" ]]; then
@@ -883,7 +1425,15 @@ main() {
     echo ""
     echo -e "${BOLD}Configuration Summary:${NC}"
     echo "  Username:           $TARGET_USERNAME"
-    echo "  Install desktop:    $INSTALL_DESKTOP"
+    echo "  Desktop:            $DESKTOP_ENV"
+    if [[ "$DESKTOP_ENV" != "none" ]]; then
+        echo "  Browser tools:      $INSTALL_BROWSER"
+        echo "  Python tools:       $INSTALL_PYTHON"
+        echo "  Build tools:        $INSTALL_BUILD"
+        echo "  Node.js extras:     $INSTALL_NODE_EXTRAS"
+        echo "  CLI tools:          $INSTALL_CLI"
+        echo "  Media tools:        $INSTALL_MEDIA"
+    fi
     echo "  Passwordless sudo:  $PASSWORDLESS_SUDO"
     echo "  Node.js version:    $NODE_VERSION"
     echo ""
@@ -904,9 +1454,16 @@ main() {
     install_base_packages
     configure_locale
     
-    if [[ "$INSTALL_DESKTOP" == "yes" ]]; then
-        install_desktop
-    fi
+    # Install desktop environment if selected
+    install_desktop
+    
+    # Install package groups
+    install_browser_packages
+    install_python_packages
+    install_build_packages
+    install_node_extras_packages
+    install_cli_packages
+    install_media_packages
     
     create_user "$TARGET_USERNAME"
     
