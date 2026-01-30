@@ -77,7 +77,7 @@ Migrate OpenClaw installation - rename user, update paths, standardize layout.
 
 OPTIONS:
   --dry-run                 Show what would be done without making changes
-  --non-interactive         Run without prompts (requires explicit options)
+  --non-interactive         Run without prompts (uses auto-detection and defaults)
   
   --old-user <name>         Current username (default: auto-detect)
   --new-user <name>         New username (required if renaming user)
@@ -206,17 +206,6 @@ parse_args() {
         esac
     done
     
-    # Validate non-interactive mode requirements
-    if [[ "$OPT_NON_INTERACTIVE" == "true" ]]; then
-        if [[ -z "$OPT_OLD_USER" ]]; then
-            echo "Error: --old-user is required in non-interactive mode"
-            exit 1
-        fi
-        if [[ "$OPT_RENAME_USER" == "yes" ]] && [[ -z "$OPT_NEW_USER" ]]; then
-            echo "Error: --new-user is required when using --rename-user"
-            exit 1
-        fi
-    fi
 }
 
 print_step() {
@@ -1239,20 +1228,27 @@ main() {
     local new_home="/home/$old_user"
     
     if [[ "$rename_user" == "yes" ]]; then
+        # Suggest new username based on hostname
+        local suggested_user=""
+        local current_hostname=$(hostname)
+        if [[ -n "$current_hostname" ]] && [[ "$current_hostname" != "$old_user" ]] && check_user_not_exists "$current_hostname"; then
+            suggested_user="$current_hostname"
+        fi
+        
         if [[ -n "$OPT_NEW_USER" ]]; then
             new_user="$OPT_NEW_USER"
             print_info "Using new username from command line: $new_user"
         elif [[ "$OPT_NON_INTERACTIVE" == "true" ]]; then
-            print_error "--new-user is required when renaming user in non-interactive mode"
-            exit 1
-        else
-            # Suggest new username based on hostname
-            local suggested_user=""
-            local current_hostname=$(hostname)
-            if [[ -n "$current_hostname" ]] && [[ "$current_hostname" != "$old_user" ]] && check_user_not_exists "$current_hostname"; then
-                suggested_user="$current_hostname"
+            # Use hostname suggestion in non-interactive mode
+            if [[ -n "$suggested_user" ]]; then
+                new_user="$suggested_user"
+                print_info "Using hostname as new username: $new_user"
+            else
+                print_error "Cannot determine new username. Hostname matches current user or already exists."
+                print_error "Use --new-user to specify, or --no-rename-user to skip renaming."
+                exit 1
             fi
-            
+        else
             if [[ -n "$suggested_user" ]]; then
                 echo ""
                 print_info "Suggested username based on hostname: ${CYAN}$suggested_user${NC}"
